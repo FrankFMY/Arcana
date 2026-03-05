@@ -102,7 +102,7 @@ interface ArcanaConfig {
 |--------|-------------|
 | `connect(workspaceId)` | Connect to transport, subscribe to workspace channel |
 | `disconnect()` | Disconnect and clean up all subscriptions |
-| `subscribe(graphKey, params, opts?)` | Subscribe to a graph view, returns `ViewHandle` |
+| `subscribe(graphKey, params, opts?)` | Subscribe to a graph view, returns `Promise<ViewHandle>`. `opts?: { onUpdate?: () => void }` |
 | `getRow(table, id)` | Get a normalized row from the local store |
 | `getTable(table)` | Get all rows for a table |
 | `persist()` | Force save state to storage adapter |
@@ -121,12 +121,16 @@ interface ArcanaConfig {
 Returned by `subscribe()`. Provides reactive access to view data.
 
 ```typescript
-interface ViewHandle {
-  readonly data: Ref[];       // Current refs (view structure)
+interface ViewHandle<T = Ref[]> {
+  readonly data: T;           // Current refs (view structure)
   readonly version: number;   // Current version
   readonly loading: boolean;  // Whether initial load is in progress
   destroy(): void;            // Unsubscribe and clean up
 }
+
+type OnUpdateCallback = () => void;
+type ConnectionStatus = "connected" | "connecting" | "disconnected" | "offline";
+type StatusCallback = (status: ConnectionStatus) => void;
 ```
 
 ### Types
@@ -143,6 +147,11 @@ interface PatchOp {
   op: "add" | "remove" | "replace";
   path: string;
   value?: unknown;
+}
+
+interface TransportMessage {
+  type: "table_diff" | "view_diff" | "view_snapshot";
+  data: unknown;
 }
 
 interface TableDiff {
