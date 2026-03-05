@@ -8,6 +8,7 @@ type Result struct {
 	mu     sync.Mutex
 	refs   []Ref
 	tables map[string]map[string]map[string]any // table → rowID → fields
+	total  int                                   // total count for paginated results
 }
 
 // NewResult creates an empty Result.
@@ -80,6 +81,22 @@ func (r *Result) Tables() map[string]map[string]map[string]any {
 		out[tbl] = outRows
 	}
 	return out
+}
+
+// SetTotal stores the total row count for paginated graph results.
+// This is typically populated from a COUNT(*) OVER() window function.
+func (r *Result) SetTotal(n int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.total = n
+}
+
+// Total returns the total row count set by SetTotal.
+// Returns 0 if SetTotal was never called.
+func (r *Result) Total() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.total
 }
 
 // RowCount returns the total number of rows across all tables.

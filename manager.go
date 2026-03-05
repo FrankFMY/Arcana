@@ -63,6 +63,7 @@ type SubscribeResponse struct {
 	Version    int64                                `json:"version"`
 	Refs       []Ref                                `json:"refs"`
 	Tables     map[string]map[string]map[string]any `json:"tables"`
+	Total      int                                  `json:"total,omitempty"`
 }
 
 // Subscribe creates a new subscription, executes the factory, and returns initial data.
@@ -171,6 +172,7 @@ func (m *Manager) Subscribe(ctx context.Context, req SubscribeRequest) (*Subscri
 		Version:    1,
 		Refs:       refs,
 		Tables:     tables,
+		Total:      result.Total(),
 	}, nil
 }
 
@@ -353,6 +355,7 @@ type SyncViewResponse struct {
 	Version int64                                `json:"version,omitempty"`
 	Refs    []Ref                                `json:"refs,omitempty"`
 	Tables  map[string]map[string]map[string]any `json:"tables,omitempty"`
+	Total   int                                  `json:"total,omitempty"`
 }
 
 // Sync processes a reconnect request, returning catch-up diffs or full snapshots.
@@ -444,6 +447,7 @@ func (m *Manager) syncView(ctx context.Context, seanceSubs map[string]*Subscript
 		Version:    sub.Version,
 		Refs:       result.Refs(),
 		Tables:     result.Tables(),
+		Total:      result.Total(),
 	}, nil
 }
 

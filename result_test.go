@@ -82,6 +82,24 @@ func TestResultTablesDeepCopy(t *testing.T) {
 	}
 }
 
+func TestResultSetTotal(t *testing.T) {
+	r := NewResult()
+
+	if r.Total() != 0 {
+		t.Fatalf("expected 0, got %d", r.Total())
+	}
+
+	r.SetTotal(42)
+	if r.Total() != 42 {
+		t.Fatalf("expected 42, got %d", r.Total())
+	}
+
+	r.SetTotal(100)
+	if r.Total() != 100 {
+		t.Fatalf("expected 100, got %d", r.Total())
+	}
+}
+
 func TestResultConcurrentAccess(t *testing.T) {
 	r := NewResult()
 	var wg sync.WaitGroup
