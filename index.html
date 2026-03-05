@@ -470,6 +470,211 @@ ws.on(<span class="st">"order.shipped"</span>, (e) =&gt; { ... })
 
 <div class="divider"></div>
 
+<!-- CHANGE DETECTION -->
+<section id="change-detection">
+  <div class="container">
+    <div class="reveal">
+      <div class="section-label">Change Detection</div>
+      <div class="section-title">Three ways to detect changes</div>
+      <div class="section-desc">Choose the mode that fits your architecture. All three feed into the same invalidation pipeline &mdash; you can even combine them.</div>
+    </div>
+    <div class="features-grid" style="grid-template-columns: repeat(3, 1fr); margin-top: 48px;">
+      <div class="feature-card reveal reveal-delay-1">
+        <div class="feature-icon fi-green">&#9889;</div>
+        <h3>1. Explicit Notify</h3>
+        <p style="margin-bottom:16px">Call <code>engine.Notify()</code> after mutations. Simple, full control.</p>
+        <div class="code-block" style="border-radius:10px">
+          <div class="code-body" style="padding:16px; font-size:12px; line-height:1.7">db.Exec(<span class="st">"UPDATE users SET name=$1"</span>, name)
+engine.<span class="fn">NotifyTable</span>(ctx,
+  <span class="st">"users"</span>, id, []<span class="tp">string</span>{<span class="st">"name"</span>})</div>
+        </div>
+      </div>
+      <div class="feature-card reveal reveal-delay-2">
+        <div class="feature-icon fi-blue">&#128226;</div>
+        <h3>2. pg_notify Triggers</h3>
+        <p style="margin-bottom:16px">Auto-generated triggers. Zero app instrumentation after setup.</p>
+        <div class="code-block" style="border-radius:10px">
+          <div class="code-body" style="padding:16px; font-size:12px; line-height:1.7">arcana.<span class="fn">EnsureTriggers</span>(ctx, pool,
+  <span class="st">"arcana_changes"</span>,
+  engine.Registry().<span class="fn">RepTable</span>())
+
+engine := arcana.<span class="fn">New</span>(arcana.Config{
+  ChangeDetector: arcana.<span class="fn">NewPGNotifyListener</span>(cfg),
+})</div>
+        </div>
+      </div>
+      <div class="feature-card reveal reveal-delay-3">
+        <div class="feature-icon fi-purple">&#128752;</div>
+        <h3>3. WAL Replication</h3>
+        <p style="margin-bottom:16px">Logical replication stream. Captures all DML. Most reliable.</p>
+        <div class="code-block" style="border-radius:10px">
+          <div class="code-body" style="padding:16px; font-size:12px; line-height:1.7">engine := arcana.<span class="fn">New</span>(arcana.Config{
+  ChangeDetector: arcana.<span class="fn">NewWALListener</span>(
+    arcana.WALConfig{
+      ConnString: connStr,
+      SlotName:   <span class="st">"arcana_slot"</span>,
+      Tables:     []<span class="tp">string</span>{<span class="st">"users"</span>},
+  }),
+})</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- HTTP API & CONFIG -->
+<section id="api">
+  <div class="container">
+    <div class="reveal">
+      <div class="section-label">HTTP API</div>
+      <div class="section-title">Endpoints &amp; Configuration</div>
+    </div>
+    <div class="code-section reveal" style="margin-top:48px">
+      <div>
+        <div class="code-block">
+          <div class="code-header"><div class="code-dots"><span class="code-dot code-dot-r"></span><span class="code-dot code-dot-y"></span><span class="code-dot code-dot-g"></span></div>HTTP Endpoints</div>
+          <div class="code-body" style="font-size:12.5px; line-height:1.8"><span class="cm">// Mount</span>
+mux.Handle(<span class="st">"/arcana/"</span>, http.StripPrefix(
+  <span class="st">"/arcana"</span>, engine.<span class="fn">Handler</span>()))
+
+<span class="kw">POST</span>  <span class="st">/subscribe</span>    <span class="cm">// Subscribe to graph</span>
+<span class="kw">POST</span>  <span class="st">/unsubscribe</span>  <span class="cm">// Unsubscribe</span>
+<span class="kw">POST</span>  <span class="st">/sync</span>         <span class="cm">// Reconnect sync</span>
+<span class="kw">GET</span>   <span class="st">/active</span>       <span class="cm">// List subscriptions</span>
+<span class="kw">GET</span>   <span class="st">/schema</span>       <span class="cm">// Table definitions</span>
+<span class="kw">GET</span>   <span class="st">/health</span>       <span class="cm">// Engine stats</span>
+
+<span class="cm">// Subscribe request:</span>
+{ <span class="st">"view"</span>: <span class="st">"user_list"</span>,
+  <span class="st">"params"</span>: {<span class="st">"org_id"</span>: <span class="st">"uuid"</span>, <span class="st">"limit"</span>: <span class="nu">20</span>}}
+
+<span class="cm">// Response:</span>
+{ <span class="st">"ok"</span>: <span class="nu">true</span>, <span class="st">"data"</span>: {
+    <span class="st">"params_hash"</span>: <span class="st">"a1b2c3"</span>,
+    <span class="st">"version"</span>: <span class="nu">1</span>,
+    <span class="st">"refs"</span>: [{<span class="st">"table"</span>:<span class="st">"users"</span>, <span class="st">"id"</span>:<span class="st">"u1"</span>}],
+    <span class="st">"tables"</span>: {<span class="st">"users"</span>: {<span class="st">"u1"</span>: {...}}}
+}}</div>
+        </div>
+      </div>
+      <div class="code-explain">
+        <h3>REST API &amp; Config</h3>
+        <p>All endpoints require authentication via <code style="font-family:var(--font-mono);font-size:12px;background:rgba(0,212,170,.08);padding:2px 6px;border-radius:4px;color:var(--accent)">AuthFunc</code>. Responses use the envelope format.</p>
+        <div class="code-block" style="border-radius:10px; margin-top:16px">
+          <div class="code-header"><div class="code-dots"><span class="code-dot code-dot-r"></span><span class="code-dot code-dot-y"></span><span class="code-dot code-dot-g"></span></div>Config</div>
+          <div class="code-body" style="padding:16px; font-size:12px; line-height:1.7">arcana.Config{
+  Pool:      arcana.<span class="fn">PgxQuerier</span>(pool),
+  Transport: transport,
+  AuthFunc:  myAuthFunc,
+
+  <span class="cm">// Tuning</span>
+  InvalidationDebounce: <span class="nu">50</span>*time.Millisecond,
+  MaxSubscriptionsPerSeance: <span class="nu">100</span>,
+  SnapshotThreshold: <span class="nu">50</span>,
+  GCInterval: time.Minute,
+}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- SDK SECTION -->
+<section id="sdk">
+  <div class="container">
+    <div class="reveal">
+      <div class="section-label">TypeScript SDK</div>
+      <div class="section-title">Frontend integration</div>
+      <div class="section-desc">Drop-in TypeScript client with Svelte 5 adapter, offline persistence, and auto-generated types.</div>
+    </div>
+    <div class="code-section reveal" style="margin-top:48px">
+      <div>
+        <div class="code-block">
+          <div class="code-header"><div class="code-dots"><span class="code-dot code-dot-r"></span><span class="code-dot code-dot-y"></span><span class="code-dot code-dot-g"></span></div>ArcanaClient</div>
+          <div class="code-body" style="font-size:12.5px"><span class="kw">import</span> { ArcanaClient, IndexedDBStorageAdapter }
+  <span class="kw">from</span> <span class="st">"@arcana/sdk"</span>;
+
+<span class="kw">const</span> client = <span class="kw">new</span> ArcanaClient({
+  apiUrl: <span class="st">"/arcana"</span>,
+  transport: centrifugoTransport,
+  storage: <span class="kw">new</span> <span class="fn">IndexedDBStorageAdapter</span>(),
+});
+
+<span class="kw">await</span> client.<span class="fn">connect</span>(<span class="st">"workspace-uuid"</span>);
+<span class="kw">const</span> handle = <span class="kw">await</span> client.<span class="fn">subscribe</span>(
+  <span class="st">"user_list"</span>,
+  { org_id: <span class="st">"..."</span>, limit: <span class="nu">20</span> },
+  { onUpdate: () =&gt; renderUI() }
+);
+
+handle.data     <span class="cm">// Ref[] — view structure</span>
+handle.version  <span class="cm">// current version</span>
+client.<span class="fn">getRow</span>(<span class="st">"users"</span>, <span class="st">"u1"</span>) <span class="cm">// row data</span>
+
+handle.<span class="fn">destroy</span>();  <span class="cm">// clean up</span>
+client.<span class="fn">disconnect</span>();</div>
+        </div>
+      </div>
+      <div class="code-explain">
+        <h3>SDK Features</h3>
+        <ul>
+          <li><strong style="color:var(--text-bright)">Normalized store</strong> &mdash; <code style="font-family:var(--font-mono);font-size:12px;background:rgba(0,212,170,.08);padding:2px 6px;border-radius:4px;color:var(--accent)">getRow(table, id)</code> for any row across views</li>
+          <li><strong style="color:var(--text-bright)">Offline persistence</strong> &mdash; IndexedDB adapter caches state, auto-syncs on reconnect</li>
+          <li><strong style="color:var(--text-bright)">Svelte 5 adapter</strong> &mdash; <code style="font-family:var(--font-mono);font-size:12px;background:rgba(0,212,170,.08);padding:2px 6px;border-radius:4px;color:var(--accent)">createSubscription()</code> with $state reactivity</li>
+          <li><strong style="color:var(--text-bright)">Type codegen</strong> &mdash; <code style="font-family:var(--font-mono);font-size:12px;background:rgba(0,212,170,.08);padding:2px 6px;border-radius:4px;color:var(--accent)">go run ./cmd/arcana-gen</code> generates tables.d.ts + views.d.ts</li>
+          <li><strong style="color:var(--text-bright)">Custom transport</strong> &mdash; implement TransportClient interface for any WS/SSE</li>
+          <li><strong style="color:var(--text-bright)">Connection status</strong> &mdash; connected, connecting, disconnected, offline</li>
+        </ul>
+      </div>
+    </div>
+    <div class="code-section reveal" style="margin-top:40px">
+      <div class="code-explain">
+        <h3>Params &amp; Identity</h3>
+        <p>Type-safe parameter definitions with validation. Identity context in every factory for authorization.</p>
+        <div class="code-block" style="border-radius:10px; margin-top:16px">
+          <div class="code-body" style="padding:16px; font-size:12px; line-height:1.7"><span class="cm">// Inside Factory:</span>
+wsID := arcana.<span class="fn">WorkspaceID</span>(ctx)
+user := arcana.<span class="fn">User</span>(ctx)
+
+<span class="kw">if</span> !user.<span class="fn">HasPermission</span>(<span class="st">"read:users"</span>) {
+    <span class="kw">return</span> <span class="nu">nil</span>, arcana.ErrForbidden
+}
+
+<span class="cm">// Errors:</span>
+arcana.ErrForbidden   <span class="cm">// 403</span>
+arcana.ErrNotFound    <span class="cm">// 404</span>
+arcana.ErrInvalidParams <span class="cm">// 400</span></div>
+        </div>
+      </div>
+      <div>
+        <div class="code-block">
+          <div class="code-header"><div class="code-dots"><span class="code-dot code-dot-r"></span><span class="code-dot code-dot-y"></span><span class="code-dot code-dot-g"></span></div>Params API</div>
+          <div class="code-body" style="font-size:12.5px">Params: arcana.ParamSchema{
+  <span class="st">"org_id"</span>: arcana.<span class="fn">ParamUUID</span>().<span class="fn">Required</span>(),
+  <span class="st">"limit"</span>:  arcana.<span class="fn">ParamInt</span>().<span class="fn">Default</span>(<span class="nu">50</span>),
+  <span class="st">"status"</span>: arcana.<span class="fn">ParamString</span>().
+              <span class="fn">OneOf</span>(<span class="st">"active"</span>, <span class="st">"archived"</span>).
+              <span class="fn">Build</span>(),
+  <span class="st">"verbose"</span>: arcana.<span class="fn">ParamBool</span>().<span class="fn">Default</span>(<span class="nu">false</span>),
+},
+
+<span class="cm">// In factory:</span>
+orgID  := p.<span class="fn">UUID</span>(<span class="st">"org_id"</span>)
+limit  := p.<span class="fn">Int</span>(<span class="st">"limit"</span>)    <span class="cm">// 50 if omitted</span>
+status := p.<span class="fn">String</span>(<span class="st">"status"</span>)
+raw    := p.<span class="fn">Raw</span>()          <span class="cm">// map[string]any</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
 <section id="docs">
   <div class="container">
     <div class="reveal"><div class="section-label">Documentation</div><div class="section-title">Learn Arcana</div></div>
