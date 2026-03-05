@@ -9,6 +9,7 @@ import type {
   Ref,
   PatchOp,
 } from "./types";
+import type { StorageAdapter, ArcanaSnapshot } from "./storage";
 
 /** Reactive handle returned by subscribe(). */
 export interface ViewHandle<T = Ref[]> {
@@ -25,9 +26,15 @@ export interface ViewHandle<T = Ref[]> {
 /** Callback for view updates. */
 export type OnUpdateCallback = () => void;
 
+/** Connection status for offline awareness. */
+export type ConnectionStatus = "connected" | "connecting" | "disconnected" | "offline";
+
+/** Status change callback. */
+export type StatusCallback = (status: ConnectionStatus) => void;
+
 /**
  * ArcanaClient manages subscriptions, applies diffs, and provides
- * reactive access to synchronized data.
+ * reactive access to synchronized data. Supports offline persistence.
  */
 export class ArcanaClient {
   private tableStore: Map<string, Map<string, Record<string, unknown>>> =
@@ -38,6 +45,7 @@ export class ArcanaClient {
       refs: Ref[];
       version: number;
       graphKey: string;
+      params: Record<string, unknown>;
       onUpdate?: OnUpdateCallback;
     }
   > = new Map();
@@ -47,23 +55,71 @@ export class ArcanaClient {
   private unsubscribers: Map<string, () => void> = new Map();
   private workspaceUnsub: (() => void) | null = null;
   private workspaceId: string | null = null;
+  private storage: StorageAdapter | null;
+  private _status: ConnectionStatus = "disconnected";
+  private statusListeners: Set<StatusCallback> = new Set();
+  private persistDebounce: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(config: ArcanaConfig) {
+  constructor(config: ArcanaConfig & { storage?: StorageAdapter }) {
     this.apiUrl = config.apiUrl;
     this.transport = config.transport;
     this.fetchFn = config.fetchFn ?? fetch.bind(globalThis);
+    this.storage = config.storage ?? null;
+  }
+
+  /** Current connection status. */
+  get status(): ConnectionStatus {
+    return this._status;
+  }
+
+  /** Whether operating from cached offline data. */
+  get isOffline(): boolean {
+    return this._status === "offline" || this._status === "disconnected";
+  }
+
+  /** Register a status change listener. Returns unsubscribe function. */
+  onStatusChange(cb: StatusCallback): () => void {
+    this.statusListeners.add(cb);
+    return () => this.statusListeners.delete(cb);
+  }
+
+  private setStatus(status: ConnectionStatus): void {
+    if (this._status === status) return;
+    this._status = status;
+    for (const cb of this.statusListeners) {
+      cb(status);
+    }
   }
 
   /** Connect to the transport and start listening for updates. */
   async connect(workspaceId: string): Promise<void> {
     this.workspaceId = workspaceId;
-    await this.transport.connect();
+    this.setStatus("connecting");
 
-    // Subscribe to workspace channel for table_diff
-    this.workspaceUnsub = this.transport.subscribe(
-      `workspace:${workspaceId}`,
-      (msg) => this.handleMessage(msg)
-    );
+    try {
+      await this.transport.connect();
+
+      // Subscribe to workspace channel for table_diff
+      this.workspaceUnsub = this.transport.subscribe(
+        `workspace:${workspaceId}`,
+        (msg) => this.handleMessage(msg)
+      );
+
+      this.setStatus("connected");
+
+      // If we have cached data, sync to get missed updates
+      if (this.viewStore.size > 0) {
+        await this.syncCachedViews();
+      }
+    } catch {
+      // Failed to connect — try to load from cache
+      await this.loadFromCache();
+      if (this.tableStore.size > 0) {
+        this.setStatus("offline");
+      } else {
+        this.setStatus("disconnected");
+      }
+    }
   }
 
   /** Disconnect and clean up all subscriptions. */
@@ -78,16 +134,23 @@ export class ArcanaClient {
     this.viewStore.clear();
     this.tableStore.clear();
     this.transport.disconnect();
+    this.setStatus("disconnected");
   }
 
   /**
    * Subscribe to a view. Returns a reactive handle.
+   * In offline mode, returns cached data if available.
    */
   async subscribe(
     graphKey: string,
     params: Record<string, unknown>,
     opts?: { onUpdate?: OnUpdateCallback }
   ): Promise<ViewHandle> {
+    // If offline, return cached data
+    if (this.isOffline) {
+      return this.offlineSubscribe(graphKey, params, opts);
+    }
+
     const resp = await this.apiCall<SubscribeResponse>("subscribe", {
       view: graphKey,
       params,
@@ -107,12 +170,11 @@ export class ArcanaClient {
       refs,
       version,
       graphKey,
+      params,
       onUpdate: opts?.onUpdate,
     });
 
-    // Subscribe to seance channel for view_diff (if not already)
-    // The seance channel subscription is typically handled by the transport
-    // layer based on the session ID. Here we just track it.
+    this.schedulePersist();
 
     const store = this.viewStore;
     const handle: ViewHandle = {
@@ -141,6 +203,156 @@ export class ArcanaClient {
     return this.tableStore.get(table);
   }
 
+  /** Force persist current state to storage. */
+  async persist(): Promise<void> {
+    if (!this.storage) return;
+    await this.storage.save(this.createSnapshot());
+  }
+
+  /** Clear cached offline data. */
+  async clearCache(): Promise<void> {
+    if (!this.storage) return;
+    await this.storage.clear();
+  }
+
+  private offlineSubscribe(
+    graphKey: string,
+    _params: Record<string, unknown>,
+    opts?: { onUpdate?: OnUpdateCallback }
+  ): ViewHandle {
+    // Find cached view matching graphKey
+    for (const [hash, view] of this.viewStore) {
+      if (view.graphKey === graphKey) {
+        if (opts?.onUpdate) {
+          view.onUpdate = opts.onUpdate;
+        }
+        const store = this.viewStore;
+        return {
+          get data() {
+            return store.get(hash)?.refs ?? [];
+          },
+          get version() {
+            return store.get(hash)?.version ?? 0;
+          },
+          loading: false,
+          destroy: () => {
+            this.viewStore.delete(hash);
+          },
+        };
+      }
+    }
+
+    // No cached data for this view
+    return {
+      data: [],
+      version: 0,
+      loading: false,
+      destroy: () => {},
+    };
+  }
+
+  private async syncCachedViews(): Promise<void> {
+    const views: Array<{ view: string; params_hash: string; version: number }> =
+      [];
+    for (const [hash, view] of this.viewStore) {
+      views.push({
+        view: view.graphKey,
+        params_hash: hash,
+        version: view.version,
+      });
+    }
+
+    if (views.length === 0) return;
+
+    try {
+      const resp = await this.apiCall<{
+        views: Record<
+          string,
+          {
+            version: number;
+            refs_patch: PatchOp[];
+            tables: Record<string, Record<string, Record<string, unknown>>>;
+          }
+        >;
+      }>("sync", { views });
+
+      if (resp.ok && resp.data) {
+        for (const [hash, diff] of Object.entries(resp.data.views)) {
+          const view = this.viewStore.get(hash);
+          if (!view) continue;
+
+          if (diff.tables) {
+            this.mergeTables(diff.tables);
+          }
+          if (diff.refs_patch) {
+            applyRefsPatch(view.refs, diff.refs_patch);
+          }
+          view.version = diff.version;
+          view.onUpdate?.();
+        }
+        this.schedulePersist();
+      }
+    } catch {
+      // Sync failed — stale data is still better than nothing
+    }
+  }
+
+  private async loadFromCache(): Promise<void> {
+    if (!this.storage) return;
+    const snapshot = await this.storage.load();
+    if (!snapshot) return;
+
+    // Restore table store
+    this.tableStore.clear();
+    for (const [tableName, rows] of Object.entries(snapshot.tables)) {
+      const tableMap = new Map<string, Record<string, unknown>>();
+      for (const [rowId, fields] of Object.entries(rows)) {
+        tableMap.set(rowId, fields);
+      }
+      this.tableStore.set(tableName, tableMap);
+    }
+
+    // Restore view store
+    this.viewStore.clear();
+    for (const [hash, view] of Object.entries(snapshot.views)) {
+      this.viewStore.set(hash, {
+        refs: view.refs,
+        version: view.version,
+        graphKey: view.graphKey,
+        params: {},
+      });
+    }
+  }
+
+  private createSnapshot(): ArcanaSnapshot {
+    const tables: ArcanaSnapshot["tables"] = {};
+    for (const [tableName, rows] of this.tableStore) {
+      tables[tableName] = {};
+      for (const [rowId, fields] of rows) {
+        tables[tableName][rowId] = { ...fields };
+      }
+    }
+
+    const views: ArcanaSnapshot["views"] = {};
+    for (const [hash, view] of this.viewStore) {
+      views[hash] = {
+        refs: view.refs,
+        version: view.version,
+        graphKey: view.graphKey,
+      };
+    }
+
+    return { tables, views, timestamp: Date.now() };
+  }
+
+  private schedulePersist(): void {
+    if (!this.storage) return;
+    if (this.persistDebounce) clearTimeout(this.persistDebounce);
+    this.persistDebounce = setTimeout(() => {
+      this.persist();
+    }, 500);
+  }
+
   private async unsubscribeView(paramsHash: string): Promise<void> {
     const view = this.viewStore.get(paramsHash);
     if (!view) return;
@@ -151,10 +363,14 @@ export class ArcanaClient {
     unsub?.();
     this.unsubscribers.delete(paramsHash);
 
-    await this.apiCall("unsubscribe", {
-      view: view.graphKey,
-      params_hash: paramsHash,
-    });
+    if (!this.isOffline) {
+      await this.apiCall("unsubscribe", {
+        view: view.graphKey,
+        params_hash: paramsHash,
+      });
+    }
+
+    this.schedulePersist();
   }
 
   private handleMessage(msg: TransportMessage): void {
@@ -187,6 +403,8 @@ export class ArcanaClient {
     for (const [, view] of this.viewStore) {
       view.onUpdate?.();
     }
+
+    this.schedulePersist();
   }
 
   private handleViewDiff(diff: ViewDiff): void {
@@ -203,6 +421,7 @@ export class ArcanaClient {
     view.version = diff.version;
 
     view.onUpdate?.();
+    this.schedulePersist();
   }
 
   private mergeTables(
