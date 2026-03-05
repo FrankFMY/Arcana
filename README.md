@@ -4,7 +4,9 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/FrankFMY/arcana)](https://goreportcard.com/report/github.com/FrankFMY/arcana)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**Reactive Graph Sync Engine for Go** — real-time data synchronization between PostgreSQL and clients.
+**Reactive Graph Sync Engine for Go** — real-time data synchronization between PostgreSQL and any frontend via normalized diffs.
+
+**[Website](https://frankfmy.github.io/Arcana/)** | **[Quick Start](#quick-start)** | **[API Reference](#api-reference)** | **[TypeScript SDK](sdk/)**
 
 Inspired by ZeroCache, Replicache, and Electric SQL — built for Go backends with a TypeScript SDK for frontends.
 
