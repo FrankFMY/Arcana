@@ -111,10 +111,10 @@ func (m *mockQuerier) QueryRow(_ context.Context, _ string, _ ...any) Row {
 
 type mockRows struct{}
 
-func (r *mockRows) Next() bool        { return false }
+func (r *mockRows) Next() bool          { return false }
 func (r *mockRows) Scan(_ ...any) error { return nil }
-func (r *mockRows) Close()            {}
-func (r *mockRows) Err() error        { return nil }
+func (r *mockRows) Close()              {}
+func (r *mockRows) Err() error          { return nil }
 
 type mockRow struct{}
 

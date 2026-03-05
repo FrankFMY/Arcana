@@ -78,9 +78,9 @@ func TestIntegrationSubscribeNotifyDiff(t *testing.T) {
 	var subResp struct {
 		OK   bool `json:"ok"`
 		Data struct {
-			ParamsHash string                             `json:"params_hash"`
-			Version    int64                              `json:"version"`
-			Refs       []Ref                              `json:"refs"`
+			ParamsHash string                               `json:"params_hash"`
+			Version    int64                                `json:"version"`
+			Refs       []Ref                                `json:"refs"`
 			Tables     map[string]map[string]map[string]any `json:"tables"`
 		} `json:"data"`
 	}

@@ -28,9 +28,9 @@ type Subscription struct {
 
 // VersionEntry records a single version's diff for catch-up sync.
 type VersionEntry struct {
-	Version    int64     `json:"version"`
-	RefsPatch  []PatchOp `json:"refs_patch"`
-	Tables     map[string]map[string]map[string]any `json:"tables,omitempty"`
+	Version   int64                                `json:"version"`
+	RefsPatch []PatchOp                            `json:"refs_patch"`
+	Tables    map[string]map[string]map[string]any `json:"tables,omitempty"`
 }
 
 // ComputeParamsHash produces a deterministic hash of graphKey + sorted params.

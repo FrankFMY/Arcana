@@ -23,7 +23,7 @@ type Manager struct {
 	logger    *slog.Logger
 
 	// Subscriptions indexed multiple ways
-	subs       map[string]*Subscription          // subID → subscription
+	subs       map[string]*Subscription            // subID → subscription
 	bySeance   map[string]map[string]*Subscription // seanceID → subID → subscription
 	byGraphKey map[string]map[string]*Subscription // graphKey → subID → subscription
 	byHash     map[string]map[string]*Subscription // paramsHash → subID → subscription
@@ -59,9 +59,9 @@ type SubscribeRequest struct {
 
 // SubscribeResponse contains the initial data returned to the client.
 type SubscribeResponse struct {
-	ParamsHash string                             `json:"params_hash"`
-	Version    int64                              `json:"version"`
-	Refs       []Ref                              `json:"refs"`
+	ParamsHash string                               `json:"params_hash"`
+	Version    int64                                `json:"version"`
+	Refs       []Ref                                `json:"refs"`
 	Tables     map[string]map[string]map[string]any `json:"tables"`
 }
 
@@ -345,13 +345,13 @@ type SyncResponse struct {
 
 // SyncViewResponse contains the sync result for a single view.
 type SyncViewResponse struct {
-	View       string    `json:"view"`
-	ParamsHash string    `json:"params_hash"`
-	Mode       string    `json:"mode"` // "catch_up" or "snapshot"
+	View       string         `json:"view"`
+	ParamsHash string         `json:"params_hash"`
+	Mode       string         `json:"mode"` // "catch_up" or "snapshot"
 	Patches    []VersionEntry `json:"patches,omitempty"`
 	// Full snapshot fields (used when mode == "snapshot")
-	Version int64                              `json:"version,omitempty"`
-	Refs    []Ref                              `json:"refs,omitempty"`
+	Version int64                                `json:"version,omitempty"`
+	Refs    []Ref                                `json:"refs,omitempty"`
 	Tables  map[string]map[string]map[string]any `json:"tables,omitempty"`
 }
 

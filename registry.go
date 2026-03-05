@@ -9,9 +9,9 @@ import (
 // Registry stores graph definitions and provides lookup indices.
 type Registry struct {
 	mu       sync.RWMutex
-	graphs   map[string]*GraphDef            // key → definition
-	byTable  map[string][]*GraphDef          // table → affected graphs
-	repTable map[string]map[string]struct{}  // table → merged columns
+	graphs   map[string]*GraphDef           // key → definition
+	byTable  map[string][]*GraphDef         // table → affected graphs
+	repTable map[string]map[string]struct{} // table → merged columns
 }
 
 // NewRegistry creates an empty Registry.

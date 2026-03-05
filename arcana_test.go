@@ -142,7 +142,7 @@ func TestEngineStopNoGoroutineLeak(t *testing.T) {
 	})
 
 	engine.Register(GraphDef{
-		Key: "leak_test",
+		Key:  "leak_test",
 		Deps: []TableDep{{Table: "t", Columns: []string{"id"}}},
 		Factory: func(ctx context.Context, q Querier, p Params) (*Result, error) {
 			return NewResult(), nil
