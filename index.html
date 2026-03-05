@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arcana — Reactive Data Sync for Go</title>
+<meta name="description" content="The first open-source Go library for real-time reactive data synchronization between PostgreSQL and any frontend. Subscribe to views, get live diffs. Zero boilerplate.">
+<meta property="og:title" content="Arcana — Reactive Data Sync for Go">
+<meta property="og:description" content="Subscribe to a view. Get live updates. Zero boilerplate. One record changed, every display updated.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x25C8;</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #06080d;
+  --bg-elevated: #0c1017;
+  --bg-card: #111820;
+  --bg-code: #0a0f16;
+  --border: #1a2233;
+  --border-bright: #243044;
+  --text: #c8d6e5;
+  --text-muted: #5c7089;
+  --text-bright: #e8f0f8;
+  --accent: #00d4aa;
+  --accent-dim: #00a88a;
+  --accent-glow: rgba(0, 212, 170, 0.12);
+  --accent2: #4a90d9;
+  --accent2-glow: rgba(74, 144, 217, 0.1);
+  --red: #ff6b6b;
+  --yellow: #ffd93d;
+  --purple: #a78bfa;
+  --font-display: 'Outfit', -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+}
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--font-display);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.65;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+}
+.orb { position: absolute; border-radius: 50%; filter: blur(120px); pointer-events: none; }
+.orb-1 { width: 600px; height: 600px; background: radial-gradient(circle, rgba(0,212,170,0.08) 0%, transparent 70%); top: -200px; left: -200px; animation: of1 20s ease-in-out infinite; }
+.orb-2 { width: 500px; height: 500px; background: radial-gradient(circle, rgba(74,144,217,0.06) 0%, transparent 70%); top: -100px; right: -150px; animation: of2 25s ease-in-out infinite; }
+@keyframes of1 { 0%,100%{transform:translate(0,0) scale(1)} 33%{transform:translate(80px,40px) scale(1.1)} 66%{transform:translate(-40px,80px) scale(.95)} }
+@keyframes of2 { 0%,100%{transform:translate(0,0) scale(1)} 33%{transform:translate(-60px,60px) scale(.9)} 66%{transform:translate(40px,-40px) scale(1.05)} }
+.grid-bg {
+  position: fixed; inset: 0;
+  background-image: linear-gradient(rgba(26,34,51,0.25) 1px, transparent 1px), linear-gradient(90deg, rgba(26,34,51,0.25) 1px, transparent 1px);
+  background-size: 60px 60px; pointer-events: none;
+  mask-image: radial-gradient(ellipse 80% 50% at 50% 20%, black 10%, transparent 70%);
+}
+.container { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+section { padding: 120px 0; position: relative; }
+.reveal { opacity: 0; transform: translateY(30px); transition: opacity .8s cubic-bezier(.16,1,.3,1), transform .8s cubic-bezier(.16,1,.3,1); }
+.reveal.visible { opacity: 1; transform: translateY(0); }
+.reveal-delay-1 { transition-delay: .1s } .reveal-delay-2 { transition-delay: .2s } .reveal-delay-3 { transition-delay: .3s }
+
+/* NAV */
+nav { position: fixed; top: 0; width: 100%; z-index: 100; padding: 14px 0; background: rgba(6,8,13,0.8); backdrop-filter: blur(24px) saturate(180%); -webkit-backdrop-filter: blur(24px) saturate(180%); border-bottom: 1px solid var(--border); transition: padding .3s; }
+nav.scrolled { padding: 10px 0; background: rgba(6,8,13,0.95); }
+nav .container { display: flex; align-items: center; justify-content: space-between; }
+.nav-logo { font-size: 20px; font-weight: 700; color: var(--accent); text-decoration: none; letter-spacing: -.5px; display: flex; align-items: center; gap: 8px; transition: opacity .2s; }
+.nav-logo:hover { opacity: .85 }
+.nav-logo svg { width: 24px; height: 24px; }
+.nav-links { display: flex; gap: 28px; align-items: center; }
+.nav-links a { color: var(--text-muted); text-decoration: none; font-size: 14px; font-weight: 500; transition: color .2s; position: relative; }
+.nav-links a:not(.nav-gh):hover { color: var(--text-bright); }
+.nav-links a:not(.nav-gh)::after { content: ''; position: absolute; bottom: -4px; left: 0; width: 0; height: 1.5px; background: var(--accent); transition: width .3s; }
+.nav-links a:not(.nav-gh):hover::after { width: 100%; }
+.nav-gh { display: flex; align-items: center; gap: 6px; padding: 8px 16px; border: 1px solid var(--border-bright); border-radius: 8px; font-size: 13px; color: var(--text) !important; transition: all .25s; }
+.nav-gh:hover { border-color: var(--accent); color: var(--accent) !important; box-shadow: 0 0 20px rgba(0,212,170,.1); }
+.nav-gh svg { width: 16px; height: 16px; fill: currentColor; }
+
+/* HERO */
+.hero { min-height: 100vh; display: flex; align-items: center; padding-top: 80px; position: relative; }
+.hero-inner { text-align: center; max-width: 840px; margin: 0 auto; }
+.hero-badge { display: inline-flex; align-items: center; gap: 8px; padding: 6px 18px; border-radius: 100px; background: var(--accent-glow); border: 1px solid rgba(0,212,170,.2); font-size: 13px; font-weight: 500; color: var(--accent); margin-bottom: 36px; animation: fadeDown .8s ease-out; }
+.hero-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 2s ease infinite; flex-shrink: 0; }
+@keyframes pulse { 0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(0,212,170,.4)} 50%{opacity:.7;box-shadow:0 0 0 8px rgba(0,212,170,0)} }
+@keyframes fadeDown { from{opacity:0;transform:translateY(-16px)} to{opacity:1;transform:translateY(0)} }
+@keyframes fadeUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+.hero h1 { font-size: clamp(44px,6.5vw,76px); font-weight: 800; line-height: 1.05; color: var(--text-bright); letter-spacing: -2.5px; margin-bottom: 28px; animation: fadeUp .8s ease-out .15s both; }
+.hero h1 .gradient { background: linear-gradient(135deg, var(--accent) 0%, #3dd6c8 40%, var(--accent2) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+.hero p { font-size: 19px; color: var(--text-muted); max-width: 580px; margin: 0 auto 44px; line-height: 1.75; animation: fadeUp .8s ease-out .3s both; }
+.hero-actions { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; animation: fadeUp .8s ease-out .45s both; }
+.btn-primary { padding: 15px 36px; background: linear-gradient(135deg, var(--accent), var(--accent-dim)); color: var(--bg); border: none; border-radius: 12px; font-size: 15px; font-weight: 600; font-family: var(--font-display); cursor: pointer; text-decoration: none; transition: all .3s cubic-bezier(.16,1,.3,1); box-shadow: 0 0 30px rgba(0,212,170,.2), inset 0 1px 0 rgba(255,255,255,.15); }
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 4px 40px rgba(0,212,170,.35), inset 0 1px 0 rgba(255,255,255,.15); }
+.btn-secondary { padding: 15px 36px; background: rgba(255,255,255,.03); color: var(--text); border: 1px solid var(--border-bright); border-radius: 12px; font-size: 15px; font-weight: 500; font-family: var(--font-display); cursor: pointer; text-decoration: none; transition: all .3s; }
+.btn-secondary:hover { border-color: var(--text-muted); color: var(--text-bright); background: rgba(255,255,255,.05); }
+.install-bar { margin-top: 52px; display: inline-flex; align-items: center; gap: 12px; padding: 14px 22px; background: var(--bg-code); border: 1px solid var(--border); border-radius: 12px; font-family: var(--font-mono); font-size: 14px; animation: fadeUp .8s ease-out .6s both; transition: border-color .3s; }
+.install-bar:hover { border-color: var(--border-bright); }
+.install-bar .dollar { color: var(--text-muted); user-select: none; }
+.install-bar code { color: var(--accent); }
+.install-bar button { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px; transition: all .2s; border-radius: 4px; display: flex; align-items: center; }
+.install-bar button:hover { color: var(--accent); background: rgba(0,212,170,.08); }
+.copy-icon, .check-icon { width: 16px; height: 16px; }
+.check-icon { display: none; color: var(--accent); }
+.install-bar button.copied .copy-icon { display: none; }
+.install-bar button.copied .check-icon { display: block; }
+
+/* FLOW */
+.flow { margin: 80px auto 0; padding: 40px 44px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 18px; font-family: var(--font-mono); font-size: 13px; color: var(--text-muted); line-height: 2; text-align: left; max-width: 720px; position: relative; overflow: hidden; animation: fadeUp .8s ease-out .75s both; }
+.flow::before { content: ''; position: absolute; top: -1px; left: 15%; right: 15%; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); }
+.flow .hl { color: var(--accent); } .flow .hl2 { color: var(--accent2); } .flow .dim { color: #2a3a4c; } .flow .wh { color: var(--text-bright); }
+
+/* SECTION HEADINGS */
+.section-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 3px; color: var(--accent); margin-bottom: 16px; }
+.section-title { font-size: clamp(30px,4vw,46px); font-weight: 700; color: var(--text-bright); letter-spacing: -1.5px; margin-bottom: 16px; line-height: 1.12; }
+.section-desc { font-size: 17px; color: var(--text-muted); max-width: 620px; line-height: 1.7; }
+
+/* STATS */
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; margin-top: 80px; }
+.stat { padding: 36px 24px; background: var(--bg-card); text-align: center; }
+.stat-value { font-size: 36px; font-weight: 800; letter-spacing: -1px; margin-bottom: 6px; }
+.stat-value .a1 { color: var(--accent); } .stat-value .a2 { color: var(--accent2); } .stat-value .a3 { color: var(--purple); } .stat-value .a4 { color: var(--yellow); }
+.stat-label { font-size: 13px; color: var(--text-muted); font-weight: 500; }
+
+/* FEATURES */
+.features-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 64px; }
+.feature-card { padding: 32px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; transition: all .4s cubic-bezier(.16,1,.3,1); position: relative; overflow: hidden; }
+.feature-card::before { content: ''; position: absolute; inset: 0; border-radius: 16px; padding: 1px; background: linear-gradient(135deg, transparent 40%, rgba(0,212,170,.15) 100%); -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); -webkit-mask-composite: xor; mask-composite: exclude; opacity: 0; transition: opacity .4s; }
+.feature-card:hover { transform: translateY(-6px); box-shadow: 0 24px 48px rgba(0,0,0,.25); border-color: transparent; }
+.feature-card:hover::before { opacity: 1; }
+.feature-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; font-size: 22px; }
+.fi-green { background: rgba(0,212,170,.1); border: 1px solid rgba(0,212,170,.12); }
+.fi-blue { background: rgba(74,144,217,.1); border: 1px solid rgba(74,144,217,.12); }
+.fi-purple { background: rgba(167,139,250,.1); border: 1px solid rgba(167,139,250,.12); }
+.fi-yellow { background: rgba(255,217,61,.08); border: 1px solid rgba(255,217,61,.1); }
+.fi-red { background: rgba(255,107,107,.08); border: 1px solid rgba(255,107,107,.1); }
+.feature-card h3 { font-size: 17px; font-weight: 600; color: var(--text-bright); margin-bottom: 10px; }
+.feature-card p { font-size: 14px; color: var(--text-muted); line-height: 1.7; }
+.feature-card code { font-family: var(--font-mono); font-size: 12px; background: rgba(0,212,170,.08); padding: 2px 6px; border-radius: 4px; color: var(--accent); }
+
+/* CODE */
+.code-section { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: start; margin-top: 72px; }
+.code-block { background: var(--bg-code); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; transition: border-color .3s; }
+.code-block:hover { border-color: var(--border-bright); }
+.code-header { display: flex; align-items: center; gap: 8px; padding: 14px 20px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 500; color: var(--text-muted); font-family: var(--font-mono); }
+.code-dots { display: flex; gap: 6px; margin-right: 8px; }
+.code-dot { width: 10px; height: 10px; border-radius: 50%; }
+.code-dot-r { background: #ff5f57; } .code-dot-y { background: #febc2e; } .code-dot-g { background: #28c840; }
+.code-body { padding: 24px; font-family: var(--font-mono); font-size: 13px; line-height: 1.85; overflow-x: auto; white-space: pre; }
+.code-body .kw { color: var(--purple); } .code-body .fn { color: var(--accent2); } .code-body .st { color: var(--accent); } .code-body .cm { color: #3a4a5c; } .code-body .nu { color: var(--yellow); } .code-body .tp { color: #e8a0bf; }
+.code-explain { padding-top: 12px; }
+.code-explain h3 { font-size: 24px; font-weight: 600; color: var(--text-bright); margin-bottom: 16px; letter-spacing: -.5px; }
+.code-explain p { font-size: 15px; color: var(--text-muted); margin-bottom: 20px; line-height: 1.75; }
+.code-explain ul { list-style: none; padding: 0; }
+.code-explain li { padding: 10px 0; padding-left: 24px; position: relative; font-size: 14.5px; color: var(--text-muted); line-height: 1.55; }
+.code-explain li::before { content: ''; position: absolute; left: 0; top: 16px; width: 8px; height: 2px; background: var(--accent); border-radius: 1px; }
+
+/* COMPARISON */
+.comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 64px; }
+.comp-card { padding: 36px; border-radius: 16px; border: 1px solid var(--border); transition: transform .3s; }
+.comp-card:hover { transform: translateY(-4px); }
+.comp-before { background: rgba(255,107,107,.02); border-color: rgba(255,107,107,.12); }
+.comp-after { background: var(--accent-glow); border-color: rgba(0,212,170,.18); }
+.comp-card h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 2.5px; margin-bottom: 24px; font-weight: 600; }
+.comp-before h4 { color: var(--red); } .comp-after h4 { color: var(--accent); }
+.comp-card .code-body { padding: 0; font-size: 12.5px; line-height: 1.75; }
+.comp-lines { color: var(--text-muted); font-family: var(--font-mono); font-size: 13px; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border); }
+
+/* ARCHITECTURE */
+.arch-diagram { margin-top: 64px; padding: 56px 48px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 18px; text-align: center; position: relative; overflow: hidden; }
+.arch-row { display: flex; justify-content: center; gap: 16px; flex-wrap: wrap; }
+.arch-box { padding: 14px 28px; border-radius: 10px; font-size: 14px; font-weight: 500; border: 1px solid; transition: all .3s; }
+.arch-box:hover { transform: scale(1.05); }
+.arch-client { background: rgba(74,144,217,.06); border-color: rgba(74,144,217,.18); color: var(--accent2); }
+.arch-transport { background: rgba(167,139,250,.06); border-color: rgba(167,139,250,.18); color: var(--purple); }
+.arch-core { background: var(--accent-glow); border-color: rgba(0,212,170,.18); color: var(--accent); }
+.arch-db { background: rgba(255,217,61,.06); border-color: rgba(255,217,61,.18); color: var(--yellow); }
+.arch-arrow { color: var(--text-muted); padding: 18px 0; display: flex; justify-content: center; align-items: center; gap: 12px; font-family: var(--font-mono); font-size: 12px; }
+.arch-arrow span { color: var(--border-bright); font-size: 18px; }
+
+/* DOCS */
+.docs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 64px; }
+.doc-card { text-decoration: none; color: inherit; display: block; }
+.doc-card .feature-card { height: 100%; }
+.doc-card:hover .feature-card h3 { color: var(--accent); }
+
+/* CTA */
+.cta { text-align: center; padding: 120px 0; position: relative; }
+.cta::before { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 100%, rgba(0,212,170,.04) 0%, transparent 60%); pointer-events: none; }
+.cta-title { font-size: clamp(28px,4vw,44px); font-weight: 700; color: var(--text-bright); letter-spacing: -1px; margin-bottom: 20px; }
+.cta-desc { font-size: 17px; color: var(--text-muted); max-width: 500px; margin: 0 auto 36px; line-height: 1.7; }
+
+/* FOOTER */
+footer { padding: 48px 0; border-top: 1px solid var(--border); text-align: center; }
+footer p { font-size: 13px; color: var(--text-muted); }
+footer a { color: var(--accent); text-decoration: none; transition: opacity .2s; }
+footer a:hover { opacity: .8; }
+.divider { height: 1px; background: linear-gradient(90deg, transparent, var(--border-bright), transparent); }
+
+/* RESPONSIVE */
+@media (max-width: 1024px) { .features-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 768px) {
+  section { padding: 80px 0; }
+  .code-section, .comparison { grid-template-columns: 1fr; }
+  .features-grid { grid-template-columns: 1fr; }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .nav-links a:not(.nav-gh) { display: none; }
+  .hero h1 { letter-spacing: -1.5px; }
+  .flow { padding: 24px 20px; font-size: 11px; }
+  .arch-diagram { padding: 32px 20px; }
+  .arch-box { padding: 10px 18px; font-size: 12px; }
+}
+@media (max-width: 480px) { .stat { padding: 24px 16px; } .stat-value { font-size: 28px; } .install-bar { font-size: 12px; padding: 10px 16px; } }
+</style>
+</head>
+<body>
+<div class="grid-bg"></div>
+
+<nav id="nav">
+  <div class="container">
+    <a href="#" class="nav-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+      Arcana
+    </a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#how-it-works">How It Works</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#docs">Docs</a>
+      <a href="https://github.com/FrankFMY/arcana" class="nav-gh" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="container">
+    <div class="hero-inner">
+      <div class="hero-badge">Open Source &middot; MIT License</div>
+      <h1>Reactive data sync<br>for <span class="gradient">Go backends</span></h1>
+      <p>Subscribe to a view. Get live updates. Zero boilerplate. Arcana syncs your PostgreSQL data to any frontend through normalized diffs&thinsp;&mdash;&thinsp;one record changed, every display updated.</p>
+      <div class="hero-actions">
+        <a href="#how-it-works" class="btn-primary">Quick Start</a>
+        <a href="https://github.com/FrankFMY/arcana" class="btn-secondary" target="_blank" rel="noopener">View on GitHub</a>
+      </div>
+      <div class="install-bar">
+        <span class="dollar">$</span>
+        <code>go get github.com/FrankFMY/arcana</code>
+        <button id="copyBtn" title="Copy">
+          <svg class="copy-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+          <svg class="check-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+        </button>
+      </div>
+      <div class="flow">
+<span class="dim">// Your app mutates data as usual</span>
+db.Exec(<span class="st">"UPDATE orders SET status = 'paid'"</span>)
+engine.<span class="fn">Notify</span>(ctx, arcana.Change{Table: <span class="st">"orders"</span>, RowID: id})
+
+<span class="dim">         ┌──────────────────────────────────────┐</span>
+<span class="dim">         │</span>  <span class="wh">Arcana Engine</span>                        <span class="dim">│</span>
+<span class="dim">         │</span>  <span class="hl">registry</span> <span class="dim">→</span> <span class="hl">invalidate</span> <span class="dim">→</span> <span class="hl">diff</span> <span class="dim">→</span> <span class="hl">send</span>  <span class="dim">│</span>
+<span class="dim">         └──────────────┬───────────────────────┘</span>
+                       <span class="dim">│</span>
+          <span class="hl2">table_diff</span> <span class="dim">→</span> Centrifugo <span class="dim">→</span> <span class="hl2">WebSocket</span>
+                       <span class="dim">│</span>
+<span class="dim">         ┌──────────────┴───────────────────────┐</span>
+<span class="dim">         │</span>  <span class="wh">Browser</span> — Svelte 5 reactive store     <span class="dim">│</span>
+<span class="dim">         │</span>  <span class="hl">1 record → 100 UI locations updated</span>  <span class="dim">│</span>
+<span class="dim">         └──────────────────────────────────────┘</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section style="padding: 0;">
+  <div class="container">
+    <div class="stats reveal">
+      <div class="stat"><div class="stat-value"><span class="a1">&lt; 5ms</span></div><div class="stat-label">Diff generation</div></div>
+      <div class="stat"><div class="stat-value"><span class="a2">0</span></div><div class="stat-label">Full re-renders</div></div>
+      <div class="stat"><div class="stat-value"><span class="a3">3</span></div><div class="stat-label">Lines to subscribe</div></div>
+      <div class="stat"><div class="stat-value"><span class="a4">100%</span></div><div class="stat-label">Type-safe</div></div>
+    </div>
+  </div>
+</section>
+
+<div class="divider" style="margin-top:120px;"></div>
+
+<section id="features">
+  <div class="container">
+    <div class="reveal">
+      <div class="section-label">Why Arcana</div>
+      <div class="section-title">Everything you need for real-time sync</div>
+      <div class="section-desc">No more hand-rolling WebSocket hubs, event mappers, and subscription managers. Define views, subscribe, done.</div>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card reveal reveal-delay-1"><div class="feature-icon fi-green">&#9889;</div><h3>Normalized Data Store</h3><p>One record, one source of truth, 100 display locations. Change a company name once &mdash; every view using it updates instantly via reactive proxies.</p></div>
+      <div class="feature-card reveal reveal-delay-2"><div class="feature-icon fi-blue">&#128225;</div><h3>Two Update Streams</h3><p><code>table_diff</code> for data changes (broadcast to workspace), <code>view_diff</code> for structural changes (private per session). Minimal traffic, maximum precision.</p></div>
+      <div class="feature-card reveal reveal-delay-3"><div class="feature-icon fi-purple">&#128268;</div><h3>Pluggable Transport</h3><p>Centrifugo, raw WebSocket, SSE &mdash; swap via interface. Batch publishing, retry with backoff, disconnect management built-in.</p></div>
+      <div class="feature-card reveal reveal-delay-1"><div class="feature-icon fi-yellow">&#129504;</div><h3>Smart Invalidation</h3><p>Column-level filtering. Only re-compute views that depend on changed columns. Explicit notify, pg_notify, or WAL &mdash; your choice.</p></div>
+      <div class="feature-card reveal reveal-delay-2"><div class="feature-icon fi-red">&#9851;&#65039;</div><h3>RefCount GC</h3><p>No subscribers on a row? Auto-evicted. No memory leaks, no unbounded growth. Seance dies &mdash; all subscriptions cleaned up.</p></div>
+      <div class="feature-card reveal reveal-delay-3"><div class="feature-icon fi-green">&#128274;</div><h3>Security by Design</h3><p>Graphs are the security boundary. No graph, no data. Factory functions = authorization logic. 409 masking hides resource existence.</p></div>
+      <div class="feature-card reveal reveal-delay-1"><div class="feature-icon fi-blue">&#128244;</div><h3>Offline Support</h3><p>IndexedDB adapter. Load from cache when offline. Reconnect with version vectors &mdash; get only what changed. Zero data loss.</p></div>
+      <div class="feature-card reveal reveal-delay-2"><div class="feature-icon fi-purple">&#127991;&#65039;</div><h3>TypeScript Codegen</h3><p>Auto-generated <code>tables.d.ts</code> + <code>views.d.ts</code>. Full type safety from Go graph definitions to Svelte components.</p></div>
+      <div class="feature-card reveal reveal-delay-3"><div class="feature-icon fi-yellow">&#129514;</div><h3>Testable</h3><p>Querier interface decouples from pgx. Mock everything. 100+ tests with race detector. Integration tests with testcontainers.</p></div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<section id="how-it-works">
+  <div class="container">
+    <div class="reveal"><div class="section-label">Quick Start</div><div class="section-title">Three steps to reactive data</div></div>
+    <div class="code-section reveal">
+      <div>
+        <div class="code-block">
+          <div class="code-header"><div class="code-dots"><span class="code-dot code-dot-r"></span><span class="code-dot code-dot-y"></span><span class="code-dot code-dot-g"></span></div>main.go</div>
+          <div class="code-body"><span class="cm">// 1. Create engine</span>
+engine := arcana.<span class="fn">New</span>(arcana.Config{
+    Pool:      pgPool,
+    Transport: arcana.<span class="fn">NewCentrifugoTransport</span>(url, key),
+    AuthFunc:  myAuthFunc,
+})
+
+<span class="cm">// 2. Register graphs</span>
+engine.<span class="fn">Register</span>(UsersListGraph, OrdersGraph)
+
+<span class="cm">// 3. Start</span>
+engine.<span class="fn">Start</span>(ctx)
+http.<span class="fn">Handle</span>(<span class="st">"/arcana"</span>, engine.<span class="fn">Handler</span>())</div>
+        </div>
+      </div>
+      <div class="code-explain">
+        <h3>1. Wire it up</h3>
+        <p>Three lines to connect Arcana to your existing Go application. Bring your own PostgreSQL pool, pick a transport, define auth.</p>
+        <ul><li>No framework lock-in &mdash; works with Chi, Gin, stdlib</li><li>No schema changes required in your database</li><li>Auth pluggable &mdash; cookies, JWT, API keys</li></ul>
+      </div>
+    </div>
+    <div class="code-section reveal" style="margin-top:56px">
+      <div class="code-explain">
+        <h3>2. Define a graph</h3>
+        <p>A graph is a named query with dependencies. Plain Go &mdash; no DSL, no YAML, no magic.</p>
+        <ul><li>Factory returns refs (structure) + tables (normalized data)</li><li>Deps declare which tables trigger re-computation</li><li>ParamSchema validates and types client inputs</li></ul>
+      </div>
+      <div>
+        <div class="code-block">
+          <div class="code-header"><div class="code-dots"><span class="code-dot code-dot-r"></span><span class="code-dot code-dot-y"></span><span class="code-dot code-dot-g"></span></div>graphs/orders.go</div>
+          <div class="code-body"><span class="kw">var</span> OrdersList = arcana.GraphDef{
+    Key: <span class="st">"orders_list"</span>,
+    Params: arcana.ParamSchema{
+        <span class="st">"status"</span>: arcana.<span class="fn">ParamString</span>(),
+        <span class="st">"limit"</span>:  arcana.<span class="fn">ParamInt</span>().<span class="fn">Default</span>(<span class="nu">50</span>),
+    },
+    Deps: []arcana.TableDep{
+        {Table: <span class="st">"orders"</span>, Columns: []<span class="tp">string</span>{<span class="st">"status"</span>}},
+    },
+    Factory: <span class="kw">func</span>(ctx context.Context,
+        q arcana.Querier, p arcana.Params,
+    ) (*arcana.Result, <span class="tp">error</span>) {
+        rows, _ := q.<span class="fn">Query</span>(ctx, <span class="st">`
+          SELECT id, number, status, total
+          FROM orders WHERE org_id = $1`</span>,
+            arcana.<span class="fn">WorkspaceID</span>(ctx))
+        <span class="cm">// ... scan, result.AddRow + AddRef</span>
+    },
+}</div>
+        </div>
+      </div>
+    </div>
+    <div class="code-section reveal" style="margin-top:56px">
+      <div>
+        <div class="code-block">
+          <div class="code-header"><div class="code-dots"><span class="code-dot code-dot-r"></span><span class="code-dot code-dot-y"></span><span class="code-dot code-dot-g"></span></div>App.svelte</div>
+          <div class="code-body"><span class="kw">import</span> { arcana } <span class="kw">from</span> <span class="st">"$lib/arcana"</span>;
+
+<span class="kw">const</span> orders = arcana.<span class="fn">subscribe</span>(<span class="st">"orders_list"</span>, {
+    status: <span class="st">"active"</span>,
+    limit: <span class="nu">20</span>
+});
+
+<span class="cm">// orders.data updates automatically</span>
+<span class="cm">// when any order changes in the DB</span>
+
+{#each orders.data <span class="kw">as</span> ref}
+  &lt;OrderRow order={arcana.<span class="fn">row</span>(<span class="st">"orders"</span>, ref.id)} /&gt;
+{/each}</div>
+        </div>
+      </div>
+      <div class="code-explain">
+        <h3>3. Subscribe from frontend</h3>
+        <p>One line. No event listeners. No manual refetching. Data arrives as normalized diffs &mdash; Svelte 5 applies them with zero full re-renders.</p>
+        <ul><li>Type-safe params and results from codegen</li><li>Auto-unsubscribe on component destroy</li><li>Offline-first with IndexedDB adapter</li></ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<section>
+  <div class="container">
+    <div class="reveal"><div class="section-label">The Difference</div><div class="section-title">Without Arcana vs With Arcana</div></div>
+    <div class="comparison reveal">
+      <div class="comp-card comp-before">
+        <h4>Without Arcana</h4>
+        <div class="code-body"><span class="cm">// fetch data</span>
+<span class="kw">const</span> res = <span class="kw">await</span> fetch(<span class="st">"/api/orders"</span>)
+<span class="kw">const</span> orders = <span class="kw">await</span> res.json()
+
+<span class="cm">// subscribe to events</span>
+ws.on(<span class="st">"order.created"</span>, (e) =&gt; { ... })
+ws.on(<span class="st">"order.updated"</span>, (e) =&gt; { ... })
+ws.on(<span class="st">"order.deleted"</span>, (e) =&gt; { ... })
+ws.on(<span class="st">"order.paid"</span>, (e) =&gt; { ... })
+ws.on(<span class="st">"order.shipped"</span>, (e) =&gt; { ... })
+
+<span class="cm">// map events to state</span>
+<span class="cm">// handle reconnect</span>
+<span class="cm">// handle stale data</span>
+<span class="cm">// handle pagination</span>
+<span class="cm">// repeat for every screen...</span></div>
+        <div class="comp-lines">~50 lines per screen &times; 100 screens = <strong style="color:var(--red)">5,000 lines</strong></div>
+      </div>
+      <div class="comp-card comp-after">
+        <h4>With Arcana</h4>
+        <div class="code-body"><span class="kw">const</span> orders = arcana.<span class="fn">subscribe</span>(
+  <span class="st">"orders_list"</span>,
+  { status: <span class="st">"active"</span>, limit: <span class="nu">20</span> }
+)
+
+<span class="cm">// That's it.</span>
+<span class="cm">// Data syncs automatically.</span>
+<span class="cm">// Reconnect handled.</span>
+<span class="cm">// Offline supported.</span>
+<span class="cm">// Types generated.</span></div>
+        <div class="comp-lines" style="color:var(--accent)">1 line per screen &times; 100 screens = <strong>100 lines</strong></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<section id="architecture">
+  <div class="container">
+    <div class="reveal"><div class="section-label">Under the Hood</div><div class="section-title">Architecture</div><div class="section-desc">Arcana is an embeddable library, not a service. It runs inside your Go process with zero external dependencies beyond PostgreSQL and a transport.</div></div>
+    <div class="arch-diagram reveal">
+      <div class="arch-row"><div class="arch-box arch-client">Browser / Svelte</div><div class="arch-box arch-client">Mobile / Capacitor</div><div class="arch-box arch-client">Node.js / SSR</div></div>
+      <div class="arch-arrow"><span>&#8597;</span> WebSocket / SSE</div>
+      <div class="arch-row"><div class="arch-box arch-transport">Centrifugo / Custom WS / SSE</div></div>
+      <div class="arch-arrow"><span>&#8597;</span> HTTP API / table_diff + view_diff</div>
+      <div class="arch-row" style="gap:10px"><div class="arch-box arch-core">Registry</div><div class="arch-box arch-core">DataStore</div><div class="arch-box arch-core">Invalidator</div><div class="arch-box arch-core">DiffEngine</div></div>
+      <div class="arch-arrow"><span>&#8597;</span> SQL / pg_notify / WAL</div>
+      <div class="arch-row"><div class="arch-box arch-db">PostgreSQL</div></div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<section id="docs">
+  <div class="container">
+    <div class="reveal"><div class="section-label">Documentation</div><div class="section-title">Learn Arcana</div></div>
+    <div class="docs-grid">
+      <a href="https://github.com/FrankFMY/arcana#quick-start" class="doc-card reveal reveal-delay-1" target="_blank" rel="noopener"><div class="feature-card"><div class="feature-icon fi-green">&#128214;</div><h3>Quick Start</h3><p>Get running in 5 minutes. Install, define a graph, subscribe from frontend.</p></div></a>
+      <a href="https://github.com/FrankFMY/arcana#data-flow" class="doc-card reveal reveal-delay-2" target="_blank" rel="noopener"><div class="feature-card"><div class="feature-icon fi-blue">&#128225;</div><h3>Wire Protocol</h3><p>table_diff, view_diff, subscribe, sync &mdash; the complete protocol specification.</p></div></a>
+      <a href="https://github.com/FrankFMY/arcana#security" class="doc-card reveal reveal-delay-3" target="_blank" rel="noopener"><div class="feature-card"><div class="feature-icon fi-red">&#128274;</div><h3>Security Model</h3><p>How graphs enforce access control. AuthFunc, Factory permissions, 409 masking.</p></div></a>
+      <a href="https://github.com/FrankFMY/arcana#api-reference" class="doc-card reveal reveal-delay-1" target="_blank" rel="noopener"><div class="feature-card"><div class="feature-icon fi-purple">&#128203;</div><h3>API Reference</h3><p>Every type, method, and option. GraphDef, ParamSchema, Transport, Config.</p></div></a>
+      <a href="https://github.com/FrankFMY/arcana/tree/main/sdk" class="doc-card reveal reveal-delay-2" target="_blank" rel="noopener"><div class="feature-card"><div class="feature-icon fi-yellow">&#128312;</div><h3>TypeScript SDK</h3><p>Client, Svelte adapter, IndexedDB storage, codegen output.</p></div></a>
+      <a href="https://github.com/FrankFMY/arcana/tree/main/examples" class="doc-card reveal reveal-delay-3" target="_blank" rel="noopener"><div class="feature-card"><div class="feature-icon fi-green">&#128161;</div><h3>Examples</h3><p>Basic setup, pg_notify, Centrifugo full stack, offline mode.</p></div></a>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<section class="cta">
+  <div class="container reveal">
+    <div class="cta-title">Start building reactive apps today</div>
+    <div class="cta-desc">One Go library. One subscribe call. Real-time data sync that just works.</div>
+    <div class="hero-actions">
+      <a href="https://github.com/FrankFMY/arcana" class="btn-primary" target="_blank" rel="noopener">Get Started</a>
+      <a href="https://github.com/FrankFMY/arcana/stargazers" class="btn-secondary" target="_blank" rel="noopener">Star on GitHub</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <p style="margin-bottom:8px"><strong style="color:var(--text-bright)">Arcana</strong> &mdash; reactive data sync for Go</p>
+    <p>MIT License &middot; <a href="https://github.com/FrankFMY/arcana">github.com/FrankFMY/arcana</a></p>
+  </div>
+</footer>
+
+<script>
+const observer = new IntersectionObserver(function(entries) {
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i].isIntersecting) entries[i].target.classList.add('visible');
+  }
+}, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+document.querySelectorAll('.reveal').forEach(function(el) { observer.observe(el); });
+
+window.addEventListener('scroll', function() {
+  document.getElementById('nav').classList.toggle('scrolled', window.scrollY > 60);
+}, { passive: true });
+
+document.getElementById('copyBtn').addEventListener('click', function() {
+  var btn = this;
+  navigator.clipboard.writeText('go get github.com/FrankFMY/arcana').then(function() {
+    btn.classList.add('copied');
+    setTimeout(function() { btn.classList.remove('copied'); }, 2000);
+  });
+});
+</script>
+</body>
+</html>
