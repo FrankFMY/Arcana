@@ -338,9 +338,13 @@ Response:
             "users": {
                 "u1": {"id": "u1", "name": "Alice", "email": "alice@example.com"}
             }
-        }
+        },
+        "total": 150
     }
 }
+
+// "total" is included when the factory calls result.SetTotal(n).
+// Useful for paginated views where clients need the full count.
 ```
 
 ### Sync (Reconnect)
@@ -472,10 +476,14 @@ result.AddRef(arcana.Ref{
     },
 })
 
+// Pagination: set total count for paginated results
+result.SetTotal(150) // total matching rows (before LIMIT/OFFSET)
+
 // Inspect
 result.RowCount()  // number of rows added
 result.Refs()      // all refs
 result.Tables()    // map[table]map[rowID]map[field]any
+result.Total()     // total count set via SetTotal (0 if not set)
 ```
 
 ## Errors
@@ -536,7 +544,7 @@ querier := arcana.PgxQuerier(pool)
 arcana.go                  Engine: New, Start, Stop, Notify, Handler, Stats
 config.go                  Configuration with sensible defaults
 types.go                   Core types: GraphDef, Ref, PatchOp, Params, ParamSchema, Identity
-result.go                  Factory result accumulator (AddRow, AddRef)
+result.go                  Factory result accumulator (AddRow, AddRef, SetTotal)
 errors.go                  Exported error values
 context.go                 Identity context helpers (WithIdentity, WorkspaceID, User)
 registry.go                Graph registry with inverted table->graph index
