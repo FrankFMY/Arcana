@@ -1,0 +1,28 @@
+# Markdown files (except key docs)
+*.md
+!README.md
+!CONTRIBUTING.md
+!LICENSE.md
+!docs/**/*.md
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Vendor (if used)
+vendor/
