@@ -42,6 +42,7 @@ export interface SubscribeResponse {
   version: number;
   refs: Ref[];
   tables: Record<string, Record<string, Record<string, unknown>>>;
+  seance_id: string;
 }
 
 /** API response envelope. */
@@ -49,6 +50,12 @@ export interface ApiResponse<T = unknown> {
   ok: boolean;
   data?: T;
   error?: string;
+}
+
+/** Mutation response from the server. */
+export interface MutateResponse<T = unknown> {
+  ok: boolean;
+  data?: T;
 }
 
 /** Configuration for ArcanaClient. */
@@ -86,3 +93,28 @@ export type ViewMap = Record<
 
 /** Generic table map for type-safe row access. */
 export type TableMap = Record<string, Record<string, unknown>>;
+
+/**
+ * Extended transport that supports subscribing/unsubscribing via the transport
+ * connection itself (e.g., built-in WebSocket), bypassing HTTP endpoints.
+ */
+export interface ViewTransportClient extends TransportClient {
+  subscribeView(
+    view: string,
+    params: Record<string, unknown>
+  ): Promise<SubscribeResponse>;
+  unsubscribeView(paramsHash: string): void;
+  mutateView?(
+    action: string,
+    params: Record<string, unknown>
+  ): Promise<MutateResponse>;
+  readonly seanceId: string | null;
+  setReconnectHandler?(handler: () => void): void;
+}
+
+/** Type guard for ViewTransportClient. */
+export function isViewTransportClient(
+  t: TransportClient
+): t is ViewTransportClient {
+  return typeof (t as ViewTransportClient).subscribeView === "function";
+}

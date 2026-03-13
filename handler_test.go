@@ -35,7 +35,7 @@ func setupHandler(t *testing.T) http.Handler {
 	store := NewDataStore()
 	mgr := NewManager(reg, store, transport, &mockQuerier{}, cfg, nil)
 
-	return newHandler(mgr, reg, func(r *http.Request) (*Identity, error) {
+	return newHandler(mgr, reg, &mockQuerier{}, func(ch Change) {}, func(r *http.Request) (*Identity, error) {
 		return &Identity{
 			SeanceID:    "s1",
 			UserID:      "u1",
@@ -180,7 +180,7 @@ func TestHandlerNoAuth(t *testing.T) {
 	mgr := NewManager(reg, NewDataStore(), newMockTransport(), &mockQuerier{}, cfg, nil)
 
 	// Auth func that returns error
-	h := newHandler(mgr, reg, func(r *http.Request) (*Identity, error) {
+	h := newHandler(mgr, reg, &mockQuerier{}, func(ch Change) {}, func(r *http.Request) (*Identity, error) {
 		return nil, ErrForbidden
 	})
 

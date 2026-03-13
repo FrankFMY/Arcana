@@ -14,14 +14,16 @@ Inspired by ZeroCache, Replicache, and Electric SQL — built for Go backends wi
 
 - **Embeddable library** — not a standalone service, imports directly into your Go app
 - **Graph-based subscriptions** — define named SQL queries with typed parameters and table dependencies
+- **Built-in WebSocket transport** — zero-dependency real-time sync, no external services needed
+- **Mutations** — server-side write operations with automatic reactive invalidation
 - **Normalized in-memory store** — shared data across subscriptions with RefCount GC
 - **JSON Patch diffs** — RFC 6902 compliant, minimal data over the wire
 - **Two update streams** — `table_diff` (row data, broadcast) + `view_diff` (structure, per-client)
 - **Reconnect sync** — catch-up via version history or full snapshot fallback
 - **Three change detection modes** — explicit notify, PostgreSQL LISTEN/NOTIFY with auto-triggers, WAL logical replication
-- **Pluggable transport** — Centrifugo (built-in), or any custom WebSocket/SSE transport
-- **TypeScript SDK** — reactive client with Svelte 5 adapter, offline persistence, and codegen
-- **Batch transport** — single HTTP call per invalidation cycle to Centrifugo
+- **Pluggable transport** — built-in WebSocket, Centrifugo, or any custom transport
+- **TypeScript SDK** — reactive client with React, Vue 3, and Svelte 5 adapters, offline persistence, and codegen
+- **DevTools panel** — built-in dashboard for runtime inspection of graphs, subscriptions, and connections
 - **Production-ready** — retry with backoff, reconnect, UUID validation, configurable limits
 
 ## Installation
@@ -48,10 +50,6 @@ func main() {
 
     engine := arcana.New(arcana.Config{
         Pool: arcana.PgxQuerier(pool),
-        Transport: arcana.NewCentrifugoTransport(arcana.CentrifugoConfig{
-            APIURL: "http://localhost:8000",
-            APIKey: "your-api-key",
-        }),
         AuthFunc: func(r *http.Request) (*arcana.Identity, error) {
             return &arcana.Identity{
                 SeanceID:    r.Header.Get("X-Seance-ID"),
@@ -67,9 +65,12 @@ func main() {
 
     mux := http.NewServeMux()
     mux.Handle("/arcana/", http.StripPrefix("/arcana", engine.Handler()))
+    mux.Handle("/ws", engine.WSHandler())
     http.ListenAndServe(":8080", mux)
 }
 ```
+
+That's it — built-in WebSocket transport with zero external dependencies. For Centrifugo or custom transports, see [Transport](#transport).
 
 ## Core Concepts
 
@@ -171,6 +172,35 @@ Factory: func(ctx context.Context, q arcana.Querier, p arcana.Params) (*arcana.R
 }
 ```
 
+## Mutations
+
+Register server-side write operations that automatically trigger reactive updates:
+
+```go
+var CreateTask = arcana.MutationDef{
+    Key: "create_task",
+    Params: arcana.ParamSchema{
+        "title":  arcana.ParamString().Required(),
+        "status": arcana.ParamString().Default("todo"),
+    },
+    Handler: func(ctx context.Context, q arcana.Querier, p arcana.Params) (*arcana.MutationResult, error) {
+        // Insert into database...
+        id := "new-task-id"
+
+        return &arcana.MutationResult{
+            Data: map[string]any{"id": id},
+            Changes: []arcana.Change{
+                {Table: "tasks", RowID: id, Columns: []string{"id", "title", "status"}},
+            },
+        }, nil
+    },
+}
+
+engine.RegisterMutation(CreateTask)
+```
+
+Execute via HTTP (`POST /mutate`) or WebSocket (`{"type":"mutate","action":"create_task","params":{...}}`). Changes listed in the result are automatically fed into the invalidation pipeline.
+
 ## Change Detection
 
 Arcana supports three modes for detecting data changes:
@@ -254,7 +284,38 @@ type Transport interface {
 }
 ```
 
-### Centrifugo Transport (Built-in)
+### WebSocket Transport (Built-in, Default)
+
+When no `Transport` is provided, Arcana automatically creates a built-in WebSocket transport. No external services needed.
+
+```go
+engine := arcana.New(arcana.Config{
+    Pool:     querier,
+    AuthFunc: authFunc,
+    // WSTransport is created automatically
+})
+engine.Start(ctx)
+
+mux.Handle("/ws", engine.WSHandler()) // Mount the WS endpoint
+```
+
+The WS transport supports two auth modes:
+- **HTTP upgrade auth** — `AuthFunc` reads cookies/headers during the upgrade
+- **Token-based auth** — client sends `{"type":"auth","token":"..."}` as the first message
+
+```go
+arcana.WSTransportConfig{
+    AuthFunc:      authFunc,       // HTTP upgrade auth
+    TokenAuthFunc: tokenAuthFunc,  // Token-based auth (SPA/mobile)
+    WriteBufferSize: 256,          // Messages buffered per connection (default: 256)
+    PingInterval:    30 * time.Second,
+    PingTimeout:     10 * time.Second,
+}
+```
+
+WS protocol supports: `subscribe`, `unsubscribe`, `sync`, `mutate` — all via a single connection with request/reply correlation (`id`/`reply_to`).
+
+### Centrifugo Transport
 
 ```go
 transport := arcana.NewCentrifugoTransport(arcana.CentrifugoConfig{
@@ -310,6 +371,7 @@ mux.Handle("/arcana/", http.StripPrefix("/arcana", engine.Handler()))
 | `POST` | `/subscribe` | Subscribe to a graph view |
 | `POST` | `/unsubscribe` | Unsubscribe from a view |
 | `POST` | `/sync` | Reconnect sync (catch-up or snapshot) |
+| `POST` | `/mutate` | Execute a registered mutation |
 | `GET` | `/active` | List active subscriptions for the current seance |
 | `GET` | `/schema` | Representation table (all tables/columns across graphs) |
 | `GET` | `/health` | Health check with engine stats |
@@ -392,6 +454,18 @@ Response (snapshot mode — version gap too large):
 ```
 
 The `SnapshotThreshold` config controls when sync falls back to a full snapshot (default: 50 versions).
+
+## DevTools
+
+Mount the built-in DevTools dashboard for runtime inspection:
+
+```go
+mux.Handle("/devtools/", http.StripPrefix("/devtools", engine.DevToolsHandler()))
+```
+
+Provides:
+- `GET /arcana/devtools/` — dark-themed HTML dashboard with auto-refresh
+- `GET /arcana/devtools/state` — JSON endpoint with graphs, mutations, subscriptions, WS connections, data store stats
 
 ## Configuration
 
@@ -545,17 +619,20 @@ arcana.go                  Engine: New, Start, Stop, Notify, Handler, Stats
 config.go                  Configuration with sensible defaults
 types.go                   Core types: GraphDef, Ref, PatchOp, Params, ParamSchema, Identity
 result.go                  Factory result accumulator (AddRow, AddRef, SetTotal)
+mutation.go                Mutation types and execution logic
 errors.go                  Exported error values
 context.go                 Identity context helpers (WithIdentity, WorkspaceID, User)
-registry.go                Graph registry with inverted table->graph index
+registry.go                Graph + mutation registry with inverted indices
 store.go                   4-level normalized DataStore with RefCount GC
 diff.go                    JSON Patch (RFC 6902) diff engine
 invalidator.go             Change -> Factory re-run -> diff -> transport pipeline
 manager.go                 Subscription lifecycle, sync (catch-up/snapshot)
 subscription.go            Subscription with version history ring buffer
-handler.go                 HTTP endpoints (/subscribe, /unsubscribe, /sync, /active, /schema, /health)
+handler.go                 HTTP endpoints (/subscribe, /unsubscribe, /sync, /mutate, /active, /schema, /health)
 middleware.go              Auth middleware for HTTP handler
+devtools.go                DevTools panel (HTML dashboard + JSON state endpoint)
 transport.go               Transport interface
+transport_ws.go            Built-in WebSocket transport (default)
 transport_centrifugo.go    Centrifugo HTTP API (publish, batch, retry with backoff)
 change.go                  ChangeDetector interface
 change_explicit.go         Explicit notify (default, channel-based)
@@ -564,9 +641,15 @@ change_wal.go              PostgreSQL WAL logical replication (pgoutput)
 pgnotify_triggers.go       Auto-generate PostgreSQL trigger functions
 pgx_adapter.go             pgxpool.Pool -> Querier adapter
 codegen.go                 TypeScript type generation
-sdk/                       TypeScript client SDK with Svelte 5 adapter
+sdk/                       TypeScript client SDK
+  sdk/client.ts            ArcanaClient with offline support
+  sdk/adapters/react.ts    React hooks (useView, useRow, useMutation, useStatus)
+  sdk/adapters/vue.ts      Vue 3 composables (useView, useRow, useMutation, useStatus)
+  sdk/adapters/svelte.ts   Svelte 5 adapter (createSubscription)
+  sdk/transports/ws.ts     WebSocket transport for SDK
 cmd/arcana-gen/            Codegen CLI tool
 examples/basic/            Minimal working example
+examples/dashboard/        Real-time dashboard with WS, mutations, and DevTools
 ```
 
 ## Testing

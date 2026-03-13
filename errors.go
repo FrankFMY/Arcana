@@ -20,4 +20,7 @@ var (
 
 	// ErrNotStarted is returned when operations are attempted before Start.
 	ErrNotStarted = errors.New("arcana: not started")
+
+	// ErrTransportNotReady is returned when WSTransport is used before Engine.Start.
+	ErrTransportNotReady = errors.New("arcana: transport not ready")
 )

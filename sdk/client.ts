@@ -1,6 +1,7 @@
 import type {
   ArcanaConfig,
   ApiResponse,
+  MutateResponse,
   SubscribeResponse,
   TableDiff,
   ViewDiff,
@@ -9,6 +10,7 @@ import type {
   Ref,
   PatchOp,
 } from "./types";
+import { isViewTransportClient } from "./types";
 import type { StorageAdapter, ArcanaSnapshot } from "./storage";
 
 /** Reactive handle returned by subscribe(). */
@@ -54,6 +56,8 @@ export class ArcanaClient {
   private fetchFn: typeof fetch;
   private unsubscribers: Map<string, () => void> = new Map();
   private workspaceUnsub: (() => void) | null = null;
+  private seanceUnsub: (() => void) | null = null;
+  private seanceId: string | null = null;
   private workspaceId: string | null = null;
   private storage: StorageAdapter | null;
   private _status: ConnectionStatus = "disconnected";
@@ -105,6 +109,22 @@ export class ArcanaClient {
         (msg) => this.handleMessage(msg)
       );
 
+      if (isViewTransportClient(this.transport)) {
+        // WS transport: single pipe delivers all messages, no separate seance channel needed.
+        // Learn seanceId from auth and wire reconnect handler.
+        if (this.transport.seanceId) {
+          this.seanceId = this.transport.seanceId;
+        }
+        if (this.transport.setReconnectHandler) {
+          this.transport.setReconnectHandler(() => this.handleReconnect());
+        }
+      } else {
+        // Channel-based transport (Centrifugo): subscribe seance channel separately
+        if (this.seanceId) {
+          this.subscribeSeanceChannel();
+        }
+      }
+
       this.setStatus("connected");
 
       // If we have cached data, sync to get missed updates
@@ -124,8 +144,15 @@ export class ArcanaClient {
 
   /** Disconnect and clean up all subscriptions. */
   disconnect(): void {
+    if (this.persistDebounce) {
+      clearTimeout(this.persistDebounce);
+      this.persistDebounce = null;
+    }
+
     this.workspaceUnsub?.();
     this.workspaceUnsub = null;
+    this.seanceUnsub?.();
+    this.seanceUnsub = null;
 
     for (const unsub of this.unsubscribers.values()) {
       unsub();
@@ -151,16 +178,31 @@ export class ArcanaClient {
       return this.offlineSubscribe(graphKey, params, opts);
     }
 
-    const resp = await this.apiCall<SubscribeResponse>("subscribe", {
-      view: graphKey,
-      params,
-    });
+    let subResponse: SubscribeResponse;
 
-    if (!resp.ok || !resp.data) {
-      throw new Error(resp.error ?? "Subscribe failed");
+    if (isViewTransportClient(this.transport)) {
+      subResponse = await this.transport.subscribeView(graphKey, params);
+    } else {
+      const resp = await this.apiCall<SubscribeResponse>("subscribe", {
+        view: graphKey,
+        params,
+      });
+      if (!resp.ok || !resp.data) {
+        throw new Error(resp.error ?? "Subscribe failed");
+      }
+      subResponse = resp.data;
     }
 
-    const { params_hash, version, refs, tables } = resp.data;
+    // Learn seanceId from first successful subscribe
+    if (subResponse.seance_id && !this.seanceId) {
+      this.seanceId = subResponse.seance_id;
+      // Only subscribe seance channel for channel-based transports (not WS)
+      if (this._status === "connected" && !isViewTransportClient(this.transport)) {
+        this.subscribeSeanceChannel();
+      }
+    }
+
+    const { params_hash, version, refs, tables } = subResponse;
 
     // Populate table store
     this.mergeTables(tables);
@@ -193,6 +235,23 @@ export class ArcanaClient {
     return handle;
   }
 
+  /** Execute a registered mutation. Views update reactively after completion. */
+  async mutate<T = unknown>(
+    action: string,
+    params: Record<string, unknown> = {}
+  ): Promise<T | undefined> {
+    if (isViewTransportClient(this.transport) && this.transport.mutateView) {
+      const resp = await this.transport.mutateView(action, params);
+      return resp.data as T | undefined;
+    }
+
+    const resp = await this.apiCall<T>("mutate", { action, params });
+    if (!resp.ok) {
+      throw new Error(resp.error ?? "Mutation failed");
+    }
+    return resp.data;
+  }
+
   /** Get a row from the normalized table store. */
   getRow(table: string, id: string): Record<string, unknown> | null {
     return this.tableStore.get(table)?.get(id) ?? null;
@@ -213,6 +272,40 @@ export class ArcanaClient {
   async clearCache(): Promise<void> {
     if (!this.storage) return;
     await this.storage.clear();
+  }
+
+  /** Re-subscribe channels and sync cached views after reconnect. */
+  async handleReconnect(): Promise<void> {
+    // Update seanceId from transport if available
+    if (isViewTransportClient(this.transport) && this.transport.seanceId) {
+      this.seanceId = this.transport.seanceId;
+    }
+
+    // Re-subscribe workspace channel
+    if (this.workspaceId) {
+      this.workspaceUnsub?.();
+      this.workspaceUnsub = this.transport.subscribe(
+        `workspace:${this.workspaceId}`,
+        (msg) => this.handleMessage(msg)
+      );
+    }
+
+    // Re-subscribe seance channel (only for channel-based transports)
+    if (this.seanceId && !isViewTransportClient(this.transport)) {
+      this.subscribeSeanceChannel();
+    }
+
+    this.setStatus("connected");
+    await this.syncCachedViews();
+  }
+
+  private subscribeSeanceChannel(): void {
+    if (!this.seanceId) return;
+    this.seanceUnsub?.();
+    this.seanceUnsub = this.transport.subscribe(
+      `views:${this.seanceId}`,
+      (msg) => this.handleMessage(msg)
+    );
   }
 
   private offlineSubscribe(
@@ -364,10 +457,14 @@ export class ArcanaClient {
     this.unsubscribers.delete(paramsHash);
 
     if (!this.isOffline) {
-      await this.apiCall("unsubscribe", {
-        view: view.graphKey,
-        params_hash: paramsHash,
-      });
+      if (isViewTransportClient(this.transport)) {
+        this.transport.unsubscribeView(paramsHash);
+      } else {
+        await this.apiCall("unsubscribe", {
+          view: view.graphKey,
+          params_hash: paramsHash,
+        });
+      }
     }
 
     this.schedulePersist();

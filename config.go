@@ -29,6 +29,11 @@ type Config struct {
 
 	// GCInterval is how often the store garbage-collects unreferenced rows. Default: 1min.
 	GCInterval time.Duration
+
+	// WSConfig configures the built-in WebSocket transport.
+	// Used when Transport is nil (auto-creation mode).
+	// If nil and Transport is nil, default WSTransportConfig is used.
+	WSConfig *WSTransportConfig
 }
 
 func (c *Config) withDefaults() {

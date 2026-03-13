@@ -6,20 +6,22 @@ import (
 	"sync"
 )
 
-// Registry stores graph definitions and provides lookup indices.
+// Registry stores graph definitions, mutation definitions, and provides lookup indices.
 type Registry struct {
-	mu       sync.RWMutex
-	graphs   map[string]*GraphDef           // key → definition
-	byTable  map[string][]*GraphDef         // table → affected graphs
-	repTable map[string]map[string]struct{} // table → merged columns
+	mu        sync.RWMutex
+	graphs    map[string]*GraphDef           // key → definition
+	mutations map[string]*MutationDef        // key → mutation definition
+	byTable   map[string][]*GraphDef         // table → affected graphs
+	repTable  map[string]map[string]struct{} // table → merged columns
 }
 
 // NewRegistry creates an empty Registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		graphs:   make(map[string]*GraphDef),
-		byTable:  make(map[string][]*GraphDef),
-		repTable: make(map[string]map[string]struct{}),
+		graphs:    make(map[string]*GraphDef),
+		mutations: make(map[string]*MutationDef),
+		byTable:   make(map[string][]*GraphDef),
+		repTable:  make(map[string]map[string]struct{}),
 	}
 }
 
@@ -52,6 +54,46 @@ func (r *Registry) Register(defs ...GraphDef) error {
 	}
 
 	return nil
+}
+
+// RegisterMutation adds one or more mutation definitions to the registry.
+func (r *Registry) RegisterMutation(defs ...MutationDef) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for i := range defs {
+		def := &defs[i]
+		if def.Key == "" {
+			return fmt.Errorf("arcana: mutation definition must have a key")
+		}
+		if _, exists := r.mutations[def.Key]; exists {
+			return fmt.Errorf("arcana: mutation %q already registered", def.Key)
+		}
+		r.mutations[def.Key] = def
+	}
+
+	return nil
+}
+
+// GetMutation returns a mutation definition by key.
+func (r *Registry) GetMutation(key string) (*MutationDef, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	def, ok := r.mutations[key]
+	return def, ok
+}
+
+// MutationKeys returns all registered mutation keys.
+func (r *Registry) MutationKeys() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	keys := make([]string, 0, len(r.mutations))
+	for k := range r.mutations {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // Get returns a graph definition by key.

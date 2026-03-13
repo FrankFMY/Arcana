@@ -7,11 +7,16 @@ export type {
   TableDiff,
   ViewDiff,
   SubscribeResponse,
+  MutateResponse,
   ApiResponse,
   ArcanaConfig,
   TransportClient,
+  ViewTransportClient,
   ViewMap,
   TableMap,
 } from "./types";
+export { isViewTransportClient } from "./types";
 export { MemoryStorageAdapter, IndexedDBStorageAdapter } from "./storage";
 export type { StorageAdapter, ArcanaSnapshot } from "./storage";
+export { ArcanaWSTransport } from "./transports/ws";
+export type { WSTransportConfig } from "./transports/ws";

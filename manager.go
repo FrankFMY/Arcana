@@ -64,6 +64,7 @@ type SubscribeResponse struct {
 	Refs       []Ref                                `json:"refs"`
 	Tables     map[string]map[string]map[string]any `json:"tables"`
 	Total      int                                  `json:"total,omitempty"`
+	SeanceID   string                               `json:"seance_id"`
 }
 
 // Subscribe creates a new subscription, executes the factory, and returns initial data.
@@ -173,6 +174,7 @@ func (m *Manager) Subscribe(ctx context.Context, req SubscribeRequest) (*Subscri
 		Refs:       refs,
 		Tables:     tables,
 		Total:      result.Total(),
+		SeanceID:   req.SeanceID,
 	}, nil
 }
 

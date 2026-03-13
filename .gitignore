@@ -4,6 +4,7 @@
 !CONTRIBUTING.md
 !LICENSE.md
 !docs/**/*.md
+!CHANGELOG.md
 
 # Go
 *.exe
@@ -23,6 +24,12 @@
 # OS
 .DS_Store
 Thumbs.db
+
+# Node
+node_modules/
+
+# Compiled binaries
+/dashboard
 
 # Vendor (if used)
 vendor/

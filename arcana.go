@@ -2,6 +2,7 @@ package arcana
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -17,6 +18,7 @@ type Engine struct {
 	invalidator *Invalidator
 	notifier    *ExplicitNotifier
 	detector    ChangeDetector
+	wsTransport *WSTransport
 	logger      *slog.Logger
 
 	mu      sync.Mutex
@@ -48,6 +50,35 @@ func (e *Engine) Register(defs ...GraphDef) error {
 	return e.registry.Register(defs...)
 }
 
+// RegisterMutation adds mutation definitions to the engine.
+// Must be called before Start.
+func (e *Engine) RegisterMutation(defs ...MutationDef) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.started {
+		return ErrAlreadyStarted
+	}
+	return e.registry.RegisterMutation(defs...)
+}
+
+// Mutate executes a registered mutation. Identity must be in the context.
+func (e *Engine) Mutate(ctx context.Context, req MutateRequest) (*MutateResponse, error) {
+	def, ok := e.registry.GetMutation(req.Action)
+	if !ok {
+		return nil, fmt.Errorf("%w: mutation %q", ErrNotFound, req.Action)
+	}
+
+	result, err := executeMutation(ctx, def, e.config.Pool, req.Params, func(ch Change) {
+		e.Notify(ctx, ch)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &MutateResponse{OK: true, Data: result.Data}, nil
+}
+
 // Start initializes all internal components and begins processing.
 func (e *Engine) Start(ctx context.Context) error {
 	e.mu.Lock()
@@ -60,11 +91,35 @@ func (e *Engine) Start(ctx context.Context) error {
 	engineCtx, cancel := context.WithCancel(ctx)
 	e.cancel = cancel
 
+	// Auto-create WSTransport if no transport configured
+	if e.config.Transport == nil {
+		cfg := WSTransportConfig{}
+		if e.config.WSConfig != nil {
+			cfg = *e.config.WSConfig
+		}
+		if cfg.AuthFunc == nil {
+			cfg.AuthFunc = e.config.AuthFunc
+		}
+		cfg.withDefaults()
+		wst := NewWSTransport(cfg)
+		e.config.Transport = wst
+		e.wsTransport = wst
+	} else if wst, ok := e.config.Transport.(*WSTransport); ok {
+		e.wsTransport = wst
+	}
+
 	// Create manager
 	e.manager = NewManager(e.registry, e.store, e.config.Transport, e.config.Pool, &e.config, e.logger)
 
 	// Create invalidator
 	e.invalidator = NewInvalidator(e.registry, e.store, e.config.Transport, e.manager, e.config.Pool, e.logger)
+
+	// Wire WSTransport with dependencies
+	if e.wsTransport != nil {
+		e.wsTransport.wire(engineCtx, e.manager, e.registry, e.config.Pool, func(ch Change) {
+			e.Notify(engineCtx, ch)
+		})
+	}
 
 	// Setup change detection
 	e.notifier = NewExplicitNotifier(4096)
@@ -144,7 +199,19 @@ func (e *Engine) NotifyTable(ctx context.Context, table, rowID string, columns [
 // Handler returns an http.Handler for the Arcana endpoints.
 // Mount this on your router: mux.Mount("/arcana", engine.Handler())
 func (e *Engine) Handler() http.Handler {
-	return newHandler(e.manager, e.registry, e.config.AuthFunc)
+	return newHandler(e.manager, e.registry, e.config.Pool, func(ch Change) {
+		e.Notify(context.Background(), ch)
+	}, e.config.AuthFunc)
+}
+
+// WSHandler returns the http.Handler for WebSocket connections.
+// Mount this at your chosen path: mux.Handle("/arcana/ws", engine.WSHandler())
+// Returns nil if the engine is not using WSTransport.
+func (e *Engine) WSHandler() http.Handler {
+	if e.wsTransport == nil {
+		return nil
+	}
+	return e.wsTransport
 }
 
 // Registry returns the engine's graph registry (for codegen and inspection).

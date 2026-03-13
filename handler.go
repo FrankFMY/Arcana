@@ -17,17 +17,20 @@ type successResponse struct {
 }
 
 // newHandler creates the HTTP handler mux for Arcana endpoints.
-func newHandler(manager *Manager, registry *Registry, authFunc AuthFunc) http.Handler {
+func newHandler(manager *Manager, registry *Registry, pool Querier, notifyFn func(Change), authFunc AuthFunc) http.Handler {
 	mux := http.NewServeMux()
 
 	h := &handlerSet{
 		manager:  manager,
 		registry: registry,
+		pool:     pool,
+		notifyFn: notifyFn,
 	}
 
 	mux.HandleFunc("POST /subscribe", h.handleSubscribe)
 	mux.HandleFunc("POST /unsubscribe", h.handleUnsubscribe)
 	mux.HandleFunc("POST /sync", h.handleSync)
+	mux.HandleFunc("POST /mutate", h.handleMutate)
 	mux.HandleFunc("GET /active", h.handleActive)
 	mux.HandleFunc("GET /schema", h.handleSchema)
 	mux.HandleFunc("GET /health", h.handleHealth)
@@ -38,6 +41,8 @@ func newHandler(manager *Manager, registry *Registry, authFunc AuthFunc) http.Ha
 type handlerSet struct {
 	manager  *Manager
 	registry *Registry
+	pool     Querier
+	notifyFn func(Change)
 }
 
 // POST /subscribe
@@ -156,6 +161,39 @@ func (h *handlerSet) handleActive(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, successResponse{OK: true, Data: result})
+}
+
+// POST /mutate
+func (h *handlerSet) handleMutate(w http.ResponseWriter, r *http.Request) {
+	identity := IdentityFromCtx(r.Context())
+	if identity == nil {
+		writeJSON(w, http.StatusConflict, errorResponse{OK: false, Error: "unauthorized"})
+		return
+	}
+
+	var req struct {
+		Action string         `json:"action"`
+		Params map[string]any `json:"params"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{OK: false, Error: "invalid request body"})
+		return
+	}
+
+	def, ok := h.registry.GetMutation(req.Action)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, errorResponse{OK: false, Error: "mutation not found"})
+		return
+	}
+
+	result, err := executeMutation(r.Context(), def, h.pool, req.Params, h.notifyFn)
+	if err != nil {
+		status := errorToStatus(err)
+		writeJSON(w, status, errorResponse{OK: false, Error: err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, MutateResponse{OK: true, Data: result.Data})
 }
 
 // GET /schema
