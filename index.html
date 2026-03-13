@@ -4,9 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Arcana — Reactive Data Sync for Go</title>
-<meta name="description" content="The first open-source Go library for real-time reactive data synchronization between PostgreSQL and any frontend. Subscribe to views, get live diffs. Zero boilerplate.">
+<meta name="description" content="Embeddable Go library for real-time reactive data synchronization between PostgreSQL and any frontend. Built-in WebSocket, mutations, React/Vue/Svelte adapters, DevTools. Zero boilerplate.">
 <meta property="og:title" content="Arcana — Reactive Data Sync for Go">
-<meta property="og:description" content="Subscribe to a view. Get live updates. Zero boilerplate. One record changed, every display updated.">
+<meta property="og:description" content="Subscribe to a view. Get live updates. Zero boilerplate. Built-in WebSocket, mutations, React/Vue/Svelte. One record changed, every display updated.">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x25C8;</text></svg>">
@@ -186,6 +186,15 @@ nav .container { display: flex; align-items: center; justify-content: space-betw
 .arch-arrow { color: var(--text-muted); padding: 18px 0; display: flex; justify-content: center; align-items: center; gap: 12px; font-family: var(--font-mono); font-size: 12px; }
 .arch-arrow span { color: var(--border-bright); font-size: 18px; }
 
+/* TABS */
+.tab-bar { display: flex; gap: 4px; margin-bottom: 0; background: var(--bg-code); border: 1px solid var(--border); border-bottom: none; border-radius: 12px 12px 0 0; padding: 6px 6px 0; }
+.tab-btn { padding: 10px 20px; border: none; background: transparent; color: var(--text-muted); font-family: var(--font-mono); font-size: 13px; font-weight: 500; cursor: pointer; border-radius: 8px 8px 0 0; transition: all .2s; }
+.tab-btn:hover { color: var(--text); background: rgba(255,255,255,.03); }
+.tab-btn.active { color: var(--accent); background: var(--bg-code); border-bottom: 2px solid var(--accent); }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+.tab-code .code-block { border-radius: 0 0 16px 16px; border-top: 1px solid var(--border); }
+
 /* DOCS */
 .docs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 64px; }
 .doc-card { text-decoration: none; color: inherit; display: block; }
@@ -233,10 +242,10 @@ footer a:hover { opacity: .8; }
     <div class="nav-links">
       <a href="#features">Features</a>
       <a href="#how-it-works">How It Works</a>
+      <a href="#mutations">Mutations</a>
       <a href="#architecture">Architecture</a>
-      <a href="#change-detection">Detection</a>
-      <a href="#api">API</a>
       <a href="#sdk">SDK</a>
+      <a href="#api">API</a>
       <a href="#docs">Docs</a>
       <a href="https://github.com/FrankFMY/arcana" class="nav-gh" target="_blank" rel="noopener">
         <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -251,7 +260,7 @@ footer a:hover { opacity: .8; }
   <div class="orb orb-2"></div>
   <div class="container">
     <div class="hero-inner">
-      <div class="hero-badge">Open Source &middot; MIT License</div>
+      <div class="hero-badge">v0.2.0 &middot; Open Source &middot; MIT License</div>
       <h1>Reactive data sync<br>for <span class="gradient">Go backends</span></h1>
       <p>Subscribe to a view. Get live updates. Zero boilerplate. Arcana syncs your PostgreSQL data to any frontend through normalized diffs&thinsp;&mdash;&thinsp;one record changed, every display updated.</p>
       <div class="hero-actions">
@@ -271,17 +280,17 @@ footer a:hover { opacity: .8; }
 db.Exec(<span class="st">"UPDATE orders SET status = 'paid'"</span>)
 engine.<span class="fn">Notify</span>(ctx, arcana.Change{Table: <span class="st">"orders"</span>, RowID: id})
 
-<span class="dim">         ┌──────────────────────────────────────┐</span>
-<span class="dim">         │</span>  <span class="wh">Arcana Engine</span>                        <span class="dim">│</span>
-<span class="dim">         │</span>  <span class="hl">registry</span> <span class="dim">→</span> <span class="hl">invalidate</span> <span class="dim">→</span> <span class="hl">diff</span> <span class="dim">→</span> <span class="hl">send</span>  <span class="dim">│</span>
-<span class="dim">         └──────────────┬───────────────────────┘</span>
-                       <span class="dim">│</span>
-          <span class="hl2">table_diff</span> <span class="dim">→</span> Centrifugo <span class="dim">→</span> <span class="hl2">WebSocket</span>
-                       <span class="dim">│</span>
-<span class="dim">         ┌──────────────┴───────────────────────┐</span>
-<span class="dim">         │</span>  <span class="wh">Browser</span> — Svelte 5 reactive store     <span class="dim">│</span>
-<span class="dim">         │</span>  <span class="hl">1 record → 100 UI locations updated</span>  <span class="dim">│</span>
-<span class="dim">         └──────────────────────────────────────┘</span>
+<span class="dim">         &#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488;</span>
+<span class="dim">         &#9474;</span>  <span class="wh">Arcana Engine</span>                        <span class="dim">&#9474;</span>
+<span class="dim">         &#9474;</span>  <span class="hl">registry</span> <span class="dim">&#8594;</span> <span class="hl">invalidate</span> <span class="dim">&#8594;</span> <span class="hl">diff</span> <span class="dim">&#8594;</span> <span class="hl">send</span>  <span class="dim">&#9474;</span>
+<span class="dim">         &#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9516;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496;</span>
+                       <span class="dim">&#9474;</span>
+          <span class="hl2">table_diff</span> <span class="dim">&#8594;</span> Built-in WebSocket <span class="dim">&#8594;</span> <span class="hl2">Browser</span>
+                       <span class="dim">&#9474;</span>
+<span class="dim">         &#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9524;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488;</span>
+<span class="dim">         &#9474;</span>  <span class="wh">React / Vue / Svelte</span>               <span class="dim">&#9474;</span>
+<span class="dim">         &#9474;</span>  <span class="hl">1 record &#8594; 100 UI locations updated</span>  <span class="dim">&#9474;</span>
+<span class="dim">         &#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496;</span>
       </div>
     </div>
   </div>
@@ -290,9 +299,9 @@ engine.<span class="fn">Notify</span>(ctx, arcana.Change{Table: <span class="st"
 <section style="padding: 0;">
   <div class="container">
     <div class="stats reveal">
-      <div class="stat"><div class="stat-value"><span class="a1">&lt; 5ms</span></div><div class="stat-label">Diff generation</div></div>
-      <div class="stat"><div class="stat-value"><span class="a2">0</span></div><div class="stat-label">Full re-renders</div></div>
-      <div class="stat"><div class="stat-value"><span class="a3">3</span></div><div class="stat-label">Lines to subscribe</div></div>
+      <div class="stat"><div class="stat-value"><span class="a1">0</span></div><div class="stat-label">External dependencies</div></div>
+      <div class="stat"><div class="stat-value"><span class="a2">3</span></div><div class="stat-label">Framework adapters</div></div>
+      <div class="stat"><div class="stat-value"><span class="a3">&lt; 5ms</span></div><div class="stat-label">Diff generation</div></div>
       <div class="stat"><div class="stat-value"><span class="a4">100%</span></div><div class="stat-label">Type-safe</div></div>
     </div>
   </div>
@@ -308,15 +317,15 @@ engine.<span class="fn">Notify</span>(ctx, arcana.Change{Table: <span class="st"
       <div class="section-desc">No more hand-rolling WebSocket hubs, event mappers, and subscription managers. Define views, subscribe, done.</div>
     </div>
     <div class="features-grid">
-      <div class="feature-card reveal reveal-delay-1"><div class="feature-icon fi-green">&#9889;</div><h3>Normalized Data Store</h3><p>One record, one source of truth, 100 display locations. Change a company name once &mdash; every view using it updates instantly via reactive proxies.</p></div>
-      <div class="feature-card reveal reveal-delay-2"><div class="feature-icon fi-blue">&#128225;</div><h3>Two Update Streams</h3><p><code>table_diff</code> for data changes (broadcast to workspace), <code>view_diff</code> for structural changes (private per session). Minimal traffic, maximum precision.</p></div>
-      <div class="feature-card reveal reveal-delay-3"><div class="feature-icon fi-purple">&#128268;</div><h3>Pluggable Transport</h3><p>Centrifugo, raw WebSocket, SSE &mdash; swap via interface. Batch publishing, retry with backoff, disconnect management built-in.</p></div>
-      <div class="feature-card reveal reveal-delay-1"><div class="feature-icon fi-yellow">&#129504;</div><h3>Smart Invalidation</h3><p>Column-level filtering. Only re-compute views that depend on changed columns. Explicit notify, pg_notify, or WAL &mdash; your choice.</p></div>
-      <div class="feature-card reveal reveal-delay-2"><div class="feature-icon fi-red">&#9851;&#65039;</div><h3>RefCount GC</h3><p>No subscribers on a row? Auto-evicted. No memory leaks, no unbounded growth. Seance dies &mdash; all subscriptions cleaned up.</p></div>
-      <div class="feature-card reveal reveal-delay-3"><div class="feature-icon fi-green">&#128274;</div><h3>Security by Design</h3><p>Graphs are the security boundary. No graph, no data. Factory functions = authorization logic. 409 masking hides resource existence.</p></div>
-      <div class="feature-card reveal reveal-delay-1"><div class="feature-icon fi-blue">&#128244;</div><h3>Offline Support</h3><p>IndexedDB adapter. Load from cache when offline. Reconnect with version vectors &mdash; get only what changed. Zero data loss.</p></div>
-      <div class="feature-card reveal reveal-delay-2"><div class="feature-icon fi-purple">&#127991;&#65039;</div><h3>TypeScript Codegen</h3><p>Auto-generated <code>tables.d.ts</code> + <code>views.d.ts</code>. Full type safety from Go graph definitions to Svelte components.</p></div>
-      <div class="feature-card reveal reveal-delay-3"><div class="feature-icon fi-yellow">&#129514;</div><h3>Testable</h3><p>Querier interface decouples from pgx. Mock everything. 100+ tests with race detector. Integration tests with testcontainers.</p></div>
+      <div class="feature-card reveal reveal-delay-1"><div class="feature-icon fi-green">&#9889;</div><h3>Built-in WebSocket</h3><p>Zero-dependency real-time transport. Two auth modes: HTTP upgrade (cookies/headers) and token-based (SPA/mobile). Subscribe, mutate, sync &mdash; all over a single connection.</p></div>
+      <div class="feature-card reveal reveal-delay-2"><div class="feature-icon fi-blue">&#128225;</div><h3>Server-Side Mutations</h3><p>Register write operations with <code>RegisterMutation()</code>. Execute via HTTP or WebSocket. Typed parameter validation + automatic reactive invalidation.</p></div>
+      <div class="feature-card reveal reveal-delay-3"><div class="feature-icon fi-purple">&#128268;</div><h3>React / Vue / Svelte</h3><p>First-class adapters for all three frameworks. <code>useView</code>, <code>useRow</code>, <code>useMutation</code>, <code>useStatus</code> &mdash; reactive hooks with SSR support and offline persistence.</p></div>
+      <div class="feature-card reveal reveal-delay-1"><div class="feature-icon fi-yellow">&#129504;</div><h3>DevTools Panel</h3><p>Built-in dark-themed dashboard. Graphs, mutations, subscriptions, WS connections, data store rows &mdash; all visible at a glance with 2-second auto-refresh.</p></div>
+      <div class="feature-card reveal reveal-delay-2"><div class="feature-icon fi-green">&#128202;</div><h3>Normalized Data Store</h3><p>One record, one source of truth, 100 display locations. Change a company name once &mdash; every view using it updates instantly via normalized diffs.</p></div>
+      <div class="feature-card reveal reveal-delay-3"><div class="feature-icon fi-blue">&#128203;</div><h3>Two Update Streams</h3><p><code>table_diff</code> for data changes (broadcast to workspace), <code>view_diff</code> for structural changes (private per session). Minimal traffic, maximum precision.</p></div>
+      <div class="feature-card reveal reveal-delay-1"><div class="feature-icon fi-red">&#128161;</div><h3>Smart Invalidation</h3><p>Column-level filtering. Only re-compute views that depend on changed columns. Explicit notify, pg_notify, or WAL &mdash; your choice.</p></div>
+      <div class="feature-card reveal reveal-delay-2"><div class="feature-icon fi-purple">&#128274;</div><h3>Security by Design</h3><p>Graphs are the security boundary. No graph, no data. Factory functions = authorization logic. 409 masking hides resource existence.</p></div>
+      <div class="feature-card reveal reveal-delay-3"><div class="feature-icon fi-yellow">&#128244;</div><h3>Offline Support</h3><p>IndexedDB adapter. Load from cache when offline. Reconnect with version vectors &mdash; get only what changed. Zero data loss.</p></div>
     </div>
   </div>
 </section>
@@ -330,25 +339,27 @@ engine.<span class="fn">Notify</span>(ctx, arcana.Change{Table: <span class="st"
       <div>
         <div class="code-block">
           <div class="code-header"><div class="code-dots"><span class="code-dot code-dot-r"></span><span class="code-dot code-dot-y"></span><span class="code-dot code-dot-g"></span></div>main.go</div>
-          <div class="code-body"><span class="cm">// 1. Create engine</span>
+          <div class="code-body"><span class="cm">// 1. Create engine (zero config WS transport)</span>
 engine := arcana.<span class="fn">New</span>(arcana.Config{
-    Pool:      pgPool,
-    Transport: arcana.<span class="fn">NewCentrifugoTransport</span>(url, key),
-    AuthFunc:  myAuthFunc,
+    Pool:     arcana.<span class="fn">PgxQuerier</span>(pgPool),
+    AuthFunc: myAuthFunc,
 })
 
-<span class="cm">// 2. Register graphs</span>
+<span class="cm">// 2. Register graphs + mutations</span>
 engine.<span class="fn">Register</span>(UsersListGraph, OrdersGraph)
+engine.<span class="fn">RegisterMutation</span>(CreateTask)
 
-<span class="cm">// 3. Start</span>
+<span class="cm">// 3. Start + mount</span>
 engine.<span class="fn">Start</span>(ctx)
-http.<span class="fn">Handle</span>(<span class="st">"/arcana"</span>, engine.<span class="fn">Handler</span>())</div>
+mux.<span class="fn">Handle</span>(<span class="st">"/arcana/"</span>, http.<span class="fn">StripPrefix</span>(
+    <span class="st">"/arcana"</span>, engine.<span class="fn">Handler</span>()))
+mux.<span class="fn">Handle</span>(<span class="st">"/ws"</span>, engine.<span class="fn">WSHandler</span>())</div>
         </div>
       </div>
       <div class="code-explain">
         <h3>1. Wire it up</h3>
-        <p>Three lines to connect Arcana to your existing Go application. Bring your own PostgreSQL pool, pick a transport, define auth.</p>
-        <ul><li>No framework lock-in &mdash; works with Chi, Gin, stdlib</li><li>No schema changes required in your database</li><li>Auth pluggable &mdash; cookies, JWT, API keys</li></ul>
+        <p>Built-in WebSocket transport &mdash; no Centrifugo, no Redis, no external services. Just Go + PostgreSQL.</p>
+        <ul><li>No framework lock-in &mdash; works with Chi, Gin, stdlib</li><li>No schema changes required in your database</li><li>Auth pluggable &mdash; cookies, JWT, API keys, token-based</li></ul>
       </div>
     </div>
     <div class="code-section reveal" style="margin-top:56px">
@@ -384,9 +395,49 @@ http.<span class="fn">Handle</span>(<span class="st">"/arcana"</span>, engine.<s
     </div>
     <div class="code-section reveal" style="margin-top:56px">
       <div>
-        <div class="code-block">
-          <div class="code-header"><div class="code-dots"><span class="code-dot code-dot-r"></span><span class="code-dot code-dot-y"></span><span class="code-dot code-dot-g"></span></div>App.svelte</div>
-          <div class="code-body"><span class="kw">import</span> { arcana } <span class="kw">from</span> <span class="st">"$lib/arcana"</span>;
+        <div class="tab-bar">
+          <button class="tab-btn active" data-tab="react">React</button>
+          <button class="tab-btn" data-tab="vue">Vue</button>
+          <button class="tab-btn" data-tab="svelte">Svelte</button>
+        </div>
+        <div class="tab-code">
+          <div class="tab-panel active" id="tab-react">
+            <div class="code-block">
+              <div class="code-body"><span class="kw">import</span> { useView, useRow } <span class="kw">from</span> <span class="st">"@arcana/react"</span>;
+
+<span class="kw">function</span> <span class="fn">OrdersList</span>() {
+  <span class="kw">const</span> { data, loading } = <span class="fn">useView</span>(<span class="st">"orders_list"</span>, {
+    status: <span class="st">"active"</span>, limit: <span class="nu">20</span>
+  });
+
+  <span class="kw">if</span> (loading) <span class="kw">return</span> &lt;Spinner /&gt;;
+  <span class="kw">return</span> data.<span class="fn">map</span>(ref =&gt;
+    &lt;OrderRow key={ref.id} id={ref.id} /&gt;
+  );
+}</div>
+            </div>
+          </div>
+          <div class="tab-panel" id="tab-vue">
+            <div class="code-block">
+              <div class="code-body"><span class="kw">import</span> { useView, useRow } <span class="kw">from</span> <span class="st">"@arcana/vue"</span>;
+
+<span class="kw">const</span> { data, loading } = <span class="fn">useView</span>(<span class="st">"orders_list"</span>, () =&gt; ({
+  status: <span class="st">"active"</span>, limit: <span class="nu">20</span>
+}));
+
+<span class="cm">&lt;!-- Template --&gt;</span>
+&lt;Spinner <span class="kw">v-if</span>=<span class="st">"loading"</span> /&gt;
+&lt;<span class="kw">template</span> <span class="kw">v-else</span>&gt;
+  &lt;OrderRow
+    <span class="kw">v-for</span>=<span class="st">"ref in data"</span>
+    :key=<span class="st">"ref.id"</span>
+    :id=<span class="st">"ref.id"</span> /&gt;
+&lt;/<span class="kw">template</span>&gt;</div>
+            </div>
+          </div>
+          <div class="tab-panel" id="tab-svelte">
+            <div class="code-block">
+              <div class="code-body"><span class="kw">import</span> { arcana } <span class="kw">from</span> <span class="st">"$lib/arcana"</span>;
 
 <span class="kw">const</span> orders = arcana.<span class="fn">subscribe</span>(<span class="st">"orders_list"</span>, {
     status: <span class="st">"active"</span>,
@@ -394,17 +445,18 @@ http.<span class="fn">Handle</span>(<span class="st">"/arcana"</span>, engine.<s
 });
 
 <span class="cm">// orders.data updates automatically</span>
-<span class="cm">// when any order changes in the DB</span>
 
 {#each orders.data <span class="kw">as</span> ref}
   &lt;OrderRow order={arcana.<span class="fn">row</span>(<span class="st">"orders"</span>, ref.id)} /&gt;
 {/each}</div>
+            </div>
+          </div>
         </div>
       </div>
       <div class="code-explain">
         <h3>3. Subscribe from frontend</h3>
-        <p>One line. No event listeners. No manual refetching. Data arrives as normalized diffs &mdash; Svelte 5 applies them with zero full re-renders.</p>
-        <ul><li>Type-safe params and results from codegen</li><li>Auto-unsubscribe on component destroy</li><li>Offline-first with IndexedDB adapter</li></ul>
+        <p>One hook. No event listeners. No manual refetching. Data arrives as normalized diffs &mdash; your framework applies them with zero full re-renders.</p>
+        <ul><li>React, Vue 3, and Svelte 5 adapters</li><li>Auto-unsubscribe on component destroy</li><li>Offline-first with IndexedDB adapter</li><li>Type-safe params from codegen</li></ul>
       </div>
     </div>
   </div>
@@ -438,7 +490,7 @@ ws.on(<span class="st">"order.shipped"</span>, (e) =&gt; { ... })
       </div>
       <div class="comp-card comp-after">
         <h4>With Arcana</h4>
-        <div class="code-body"><span class="kw">const</span> orders = arcana.<span class="fn">subscribe</span>(
+        <div class="code-body"><span class="kw">const</span> { data } = <span class="fn">useView</span>(
   <span class="st">"orders_list"</span>,
   { status: <span class="st">"active"</span>, limit: <span class="nu">20</span> }
 )
@@ -448,7 +500,60 @@ ws.on(<span class="st">"order.shipped"</span>, (e) =&gt; { ... })
 <span class="cm">// Reconnect handled.</span>
 <span class="cm">// Offline supported.</span>
 <span class="cm">// Types generated.</span></div>
-        <div class="comp-lines" style="color:var(--accent)">1 line per screen &times; 100 screens = <strong>100 lines</strong></div>
+        <div class="comp-lines" style="color:var(--accent)">1 hook per screen &times; 100 screens = <strong>100 lines</strong></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- MUTATIONS -->
+<section id="mutations">
+  <div class="container">
+    <div class="reveal">
+      <div class="section-label">Write Operations</div>
+      <div class="section-title">Mutations with auto-invalidation</div>
+      <div class="section-desc">Define server-side write operations. Execute via HTTP or WebSocket. Changed data automatically triggers reactive updates for all subscribers.</div>
+    </div>
+    <div class="code-section reveal" style="margin-top:48px">
+      <div>
+        <div class="code-block">
+          <div class="code-header"><div class="code-dots"><span class="code-dot code-dot-r"></span><span class="code-dot code-dot-y"></span><span class="code-dot code-dot-g"></span></div>mutations.go</div>
+          <div class="code-body"><span class="kw">var</span> CreateTask = arcana.MutationDef{
+    Key: <span class="st">"create_task"</span>,
+    Params: arcana.ParamSchema{
+        <span class="st">"title"</span>:  arcana.<span class="fn">ParamString</span>().<span class="fn">Required</span>(),
+        <span class="st">"status"</span>: arcana.<span class="fn">ParamString</span>().<span class="fn">Default</span>(<span class="st">"todo"</span>),
+    },
+    Handler: <span class="kw">func</span>(ctx context.Context,
+        q arcana.Querier, p arcana.Params,
+    ) (*arcana.MutationResult, <span class="tp">error</span>) {
+        id := uuid.<span class="fn">New</span>()
+        q.<span class="fn">Exec</span>(ctx, <span class="st">`INSERT INTO tasks ...`</span>,
+            id, p.<span class="fn">String</span>(<span class="st">"title"</span>))
+
+        <span class="kw">return</span> &amp;arcana.MutationResult{
+            Data: <span class="kw">map</span>[<span class="tp">string</span>]<span class="tp">any</span>{<span class="st">"id"</span>: id},
+            Changes: []arcana.Change{{
+                Table: <span class="st">"tasks"</span>, RowID: id,
+            }},
+        }, <span class="nu">nil</span>
+    },
+}
+
+engine.<span class="fn">RegisterMutation</span>(CreateTask)</div>
+        </div>
+      </div>
+      <div class="code-explain">
+        <h3>Define once, call from anywhere</h3>
+        <p>Mutations are registered on the server with typed parameters and a handler function. The result declares which rows changed &mdash; Arcana handles the rest.</p>
+        <ul>
+          <li><strong style="color:var(--text-bright)">HTTP</strong> &mdash; <code>POST /mutate</code> with <code>{"action":"create_task","params":{...}}</code></li>
+          <li><strong style="color:var(--text-bright)">WebSocket</strong> &mdash; <code>{"type":"mutate","action":"create_task"}</code> over the same WS connection</li>
+          <li><strong style="color:var(--text-bright)">Auto-invalidation</strong> &mdash; Changes trigger the diff pipeline, all affected views update</li>
+          <li><strong style="color:var(--text-bright)">Frontend</strong> &mdash; <code>useMutation("create_task")</code> in React/Vue/Svelte</li>
+        </ul>
       </div>
     </div>
   </div>
@@ -458,13 +563,13 @@ ws.on(<span class="st">"order.shipped"</span>, (e) =&gt; { ... })
 
 <section id="architecture">
   <div class="container">
-    <div class="reveal"><div class="section-label">Under the Hood</div><div class="section-title">Architecture</div><div class="section-desc">Arcana is an embeddable library, not a service. It runs inside your Go process with zero external dependencies beyond PostgreSQL and a transport.</div></div>
+    <div class="reveal"><div class="section-label">Under the Hood</div><div class="section-title">Architecture</div><div class="section-desc">Arcana is an embeddable library, not a service. It runs inside your Go process with zero external dependencies beyond PostgreSQL.</div></div>
     <div class="arch-diagram reveal">
-      <div class="arch-row"><div class="arch-box arch-client">Browser / Svelte</div><div class="arch-box arch-client">Mobile / Capacitor</div><div class="arch-box arch-client">Node.js / SSR</div></div>
-      <div class="arch-arrow"><span>&#8597;</span> WebSocket / SSE</div>
-      <div class="arch-row"><div class="arch-box arch-transport">Centrifugo / Custom WS / SSE</div></div>
-      <div class="arch-arrow"><span>&#8597;</span> HTTP API / table_diff + view_diff</div>
-      <div class="arch-row" style="gap:10px"><div class="arch-box arch-core">Registry</div><div class="arch-box arch-core">DataStore</div><div class="arch-box arch-core">Invalidator</div><div class="arch-box arch-core">DiffEngine</div></div>
+      <div class="arch-row"><div class="arch-box arch-client">React</div><div class="arch-box arch-client">Vue 3</div><div class="arch-box arch-client">Svelte 5</div><div class="arch-box arch-client">Mobile / Capacitor</div></div>
+      <div class="arch-arrow"><span>&#8597;</span> Built-in WebSocket / Centrifugo / Custom</div>
+      <div class="arch-row" style="gap:10px"><div class="arch-box arch-core">Registry</div><div class="arch-box arch-core">DataStore</div><div class="arch-box arch-core">Invalidator</div><div class="arch-box arch-core">Mutations</div></div>
+      <div class="arch-arrow"><span>&#8597;</span> table_diff + view_diff + mutate</div>
+      <div class="arch-row" style="gap:10px"><div class="arch-box arch-transport">WSTransport</div><div class="arch-box arch-transport">DevTools</div><div class="arch-box arch-transport">HTTP Handler</div></div>
       <div class="arch-arrow"><span>&#8597;</span> SQL / pg_notify / WAL</div>
       <div class="arch-row"><div class="arch-box arch-db">PostgreSQL</div></div>
     </div>
@@ -527,6 +632,60 @@ engine := arcana.<span class="fn">New</span>(arcana.Config{
 
 <div class="divider"></div>
 
+<!-- SDK SECTION -->
+<section id="sdk">
+  <div class="container">
+    <div class="reveal">
+      <div class="section-label">TypeScript SDK</div>
+      <div class="section-title">Frontend integration</div>
+      <div class="section-desc">Drop-in TypeScript client with React, Vue, and Svelte adapters, offline persistence, and auto-generated types.</div>
+    </div>
+    <div class="code-section reveal" style="margin-top:48px">
+      <div>
+        <div class="code-block">
+          <div class="code-header"><div class="code-dots"><span class="code-dot code-dot-r"></span><span class="code-dot code-dot-y"></span><span class="code-dot code-dot-g"></span></div>ArcanaClient + WS Transport</div>
+          <div class="code-body" style="font-size:12.5px"><span class="kw">import</span> { ArcanaClient } <span class="kw">from</span> <span class="st">"@arcana/sdk"</span>;
+<span class="kw">import</span> { ArcanaWSTransport } <span class="kw">from</span> <span class="st">"@arcana/ws"</span>;
+
+<span class="kw">const</span> transport = <span class="kw">new</span> <span class="fn">ArcanaWSTransport</span>({
+  url: <span class="st">"ws://localhost:8080/ws"</span>,
+});
+
+<span class="kw">const</span> client = <span class="kw">new</span> ArcanaClient({
+  apiUrl: <span class="st">"/arcana"</span>,
+  transport,
+});
+
+<span class="kw">await</span> client.<span class="fn">connect</span>(<span class="st">"workspace-uuid"</span>);
+
+<span class="cm">// Subscribe, mutate, disconnect</span>
+<span class="kw">const</span> handle = <span class="kw">await</span> client.<span class="fn">subscribe</span>(
+  <span class="st">"orders"</span>, { limit: <span class="nu">20</span> },
+  { onUpdate: () =&gt; refresh() }
+);
+
+<span class="kw">await</span> client.<span class="fn">mutate</span>(<span class="st">"create_task"</span>, {
+  title: <span class="st">"Ship feature"</span>
+});</div>
+        </div>
+      </div>
+      <div class="code-explain">
+        <h3>SDK Features</h3>
+        <ul>
+          <li><strong style="color:var(--text-bright)">WebSocket transport</strong> &mdash; subscribe, mutate, sync over a single WS connection with auto-reconnect</li>
+          <li><strong style="color:var(--text-bright)">React adapter</strong> &mdash; <code>useView</code>, <code>useRow</code>, <code>useMutation</code>, <code>useStatus</code> hooks with SSR support</li>
+          <li><strong style="color:var(--text-bright)">Vue 3 adapter</strong> &mdash; composables with <code>shallowRef</code> reactivity and <code>onUnmounted</code> cleanup</li>
+          <li><strong style="color:var(--text-bright)">Svelte 5 adapter</strong> &mdash; <code>createSubscription()</code> with $state reactivity</li>
+          <li><strong style="color:var(--text-bright)">Offline persistence</strong> &mdash; IndexedDB adapter caches state, auto-syncs on reconnect</li>
+          <li><strong style="color:var(--text-bright)">Type codegen</strong> &mdash; <code>go run ./cmd/arcana-gen</code> generates tables.d.ts + views.d.ts</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
 <!-- HTTP API & CONFIG -->
 <section id="api">
   <div class="container">
@@ -537,139 +696,37 @@ engine := arcana.<span class="fn">New</span>(arcana.Config{
     <div class="code-section reveal" style="margin-top:48px">
       <div>
         <div class="code-block">
-          <div class="code-header"><div class="code-dots"><span class="code-dot code-dot-r"></span><span class="code-dot code-dot-y"></span><span class="code-dot code-dot-g"></span></div>HTTP Endpoints</div>
+          <div class="code-header"><div class="code-dots"><span class="code-dot code-dot-r"></span><span class="code-dot code-dot-y"></span><span class="code-dot code-dot-g"></span></div>HTTP + WebSocket Endpoints</div>
           <div class="code-body" style="font-size:12.5px; line-height:1.8"><span class="cm">// Mount</span>
 mux.Handle(<span class="st">"/arcana/"</span>, http.StripPrefix(
   <span class="st">"/arcana"</span>, engine.<span class="fn">Handler</span>()))
+mux.Handle(<span class="st">"/ws"</span>, engine.<span class="fn">WSHandler</span>())
 
 <span class="kw">POST</span>  <span class="st">/subscribe</span>    <span class="cm">// Subscribe to graph</span>
 <span class="kw">POST</span>  <span class="st">/unsubscribe</span>  <span class="cm">// Unsubscribe</span>
 <span class="kw">POST</span>  <span class="st">/sync</span>         <span class="cm">// Reconnect sync</span>
+<span class="kw">POST</span>  <span class="st">/mutate</span>       <span class="cm">// Execute mutation</span>
 <span class="kw">GET</span>   <span class="st">/active</span>       <span class="cm">// List subscriptions</span>
 <span class="kw">GET</span>   <span class="st">/schema</span>       <span class="cm">// Table definitions</span>
 <span class="kw">GET</span>   <span class="st">/health</span>       <span class="cm">// Engine stats</span>
 
-<span class="cm">// Subscribe request:</span>
-{ <span class="st">"view"</span>: <span class="st">"user_list"</span>,
-  <span class="st">"params"</span>: {<span class="st">"org_id"</span>: <span class="st">"uuid"</span>, <span class="st">"limit"</span>: <span class="nu">20</span>}}
-
-<span class="cm">// Response:</span>
-{ <span class="st">"ok"</span>: <span class="nu">true</span>, <span class="st">"data"</span>: {
-    <span class="st">"params_hash"</span>: <span class="st">"a1b2c3"</span>,
-    <span class="st">"version"</span>: <span class="nu">1</span>,
-    <span class="st">"refs"</span>: [{<span class="st">"table"</span>:<span class="st">"users"</span>, <span class="st">"id"</span>:<span class="st">"u1"</span>}],
-    <span class="st">"tables"</span>: {<span class="st">"users"</span>: {<span class="st">"u1"</span>: {...}}}
-}}</div>
+<span class="cm">// WebSocket protocol (same WS connection):</span>
+<span class="cm">// subscribe, unsubscribe, sync, mutate</span>
+<span class="cm">// Request/reply with id + reply_to</span></div>
         </div>
       </div>
       <div class="code-explain">
-        <h3>REST API &amp; Config</h3>
-        <p>All endpoints require authentication via <code style="font-family:var(--font-mono);font-size:12px;background:rgba(0,212,170,.08);padding:2px 6px;border-radius:4px;color:var(--accent)">AuthFunc</code>. Responses use the envelope format.</p>
+        <h3>REST + WebSocket API</h3>
+        <p>All HTTP endpoints require authentication via <code style="font-family:var(--font-mono);font-size:12px;background:rgba(0,212,170,.08);padding:2px 6px;border-radius:4px;color:var(--accent)">AuthFunc</code>. WebSocket supports HTTP upgrade auth or token-based auth for SPAs.</p>
         <div class="code-block" style="border-radius:10px; margin-top:16px">
-          <div class="code-header"><div class="code-dots"><span class="code-dot code-dot-r"></span><span class="code-dot code-dot-y"></span><span class="code-dot code-dot-g"></span></div>Config</div>
-          <div class="code-body" style="padding:16px; font-size:12px; line-height:1.7">arcana.Config{
-  Pool:      arcana.<span class="fn">PgxQuerier</span>(pool),
-  Transport: transport,
-  AuthFunc:  myAuthFunc,
+          <div class="code-header"><div class="code-dots"><span class="code-dot code-dot-r"></span><span class="code-dot code-dot-y"></span><span class="code-dot code-dot-g"></span></div>DevTools</div>
+          <div class="code-body" style="padding:16px; font-size:12px; line-height:1.7"><span class="cm">// Mount DevTools panel</span>
+mux.Handle(<span class="st">"/devtools/"</span>,
+  http.<span class="fn">StripPrefix</span>(<span class="st">"/devtools"</span>,
+    engine.<span class="fn">DevToolsHandler</span>()))
 
-  <span class="cm">// Tuning</span>
-  InvalidationDebounce: <span class="nu">50</span>*time.Millisecond,
-  MaxSubscriptionsPerSeance: <span class="nu">100</span>,
-  SnapshotThreshold: <span class="nu">50</span>,
-  GCInterval: time.Minute,
-}</div>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<div class="divider"></div>
-
-<!-- SDK SECTION -->
-<section id="sdk">
-  <div class="container">
-    <div class="reveal">
-      <div class="section-label">TypeScript SDK</div>
-      <div class="section-title">Frontend integration</div>
-      <div class="section-desc">Drop-in TypeScript client with Svelte 5 adapter, offline persistence, and auto-generated types.</div>
-    </div>
-    <div class="code-section reveal" style="margin-top:48px">
-      <div>
-        <div class="code-block">
-          <div class="code-header"><div class="code-dots"><span class="code-dot code-dot-r"></span><span class="code-dot code-dot-y"></span><span class="code-dot code-dot-g"></span></div>ArcanaClient</div>
-          <div class="code-body" style="font-size:12.5px"><span class="kw">import</span> { ArcanaClient, IndexedDBStorageAdapter }
-  <span class="kw">from</span> <span class="st">"@arcana/sdk"</span>;
-
-<span class="kw">const</span> client = <span class="kw">new</span> ArcanaClient({
-  apiUrl: <span class="st">"/arcana"</span>,
-  transport: centrifugoTransport,
-  storage: <span class="kw">new</span> <span class="fn">IndexedDBStorageAdapter</span>(),
-});
-
-<span class="kw">await</span> client.<span class="fn">connect</span>(<span class="st">"workspace-uuid"</span>);
-<span class="kw">const</span> handle = <span class="kw">await</span> client.<span class="fn">subscribe</span>(
-  <span class="st">"user_list"</span>,
-  { org_id: <span class="st">"..."</span>, limit: <span class="nu">20</span> },
-  { onUpdate: () =&gt; renderUI() }
-);
-
-handle.data     <span class="cm">// Ref[] — view structure</span>
-handle.version  <span class="cm">// current version</span>
-client.<span class="fn">getRow</span>(<span class="st">"users"</span>, <span class="st">"u1"</span>) <span class="cm">// row data</span>
-
-handle.<span class="fn">destroy</span>();  <span class="cm">// clean up</span>
-client.<span class="fn">disconnect</span>();</div>
-        </div>
-      </div>
-      <div class="code-explain">
-        <h3>SDK Features</h3>
-        <ul>
-          <li><strong style="color:var(--text-bright)">Normalized store</strong> &mdash; <code style="font-family:var(--font-mono);font-size:12px;background:rgba(0,212,170,.08);padding:2px 6px;border-radius:4px;color:var(--accent)">getRow(table, id)</code> for any row across views</li>
-          <li><strong style="color:var(--text-bright)">Offline persistence</strong> &mdash; IndexedDB adapter caches state, auto-syncs on reconnect</li>
-          <li><strong style="color:var(--text-bright)">Svelte 5 adapter</strong> &mdash; <code style="font-family:var(--font-mono);font-size:12px;background:rgba(0,212,170,.08);padding:2px 6px;border-radius:4px;color:var(--accent)">createSubscription()</code> with $state reactivity</li>
-          <li><strong style="color:var(--text-bright)">Type codegen</strong> &mdash; <code style="font-family:var(--font-mono);font-size:12px;background:rgba(0,212,170,.08);padding:2px 6px;border-radius:4px;color:var(--accent)">go run ./cmd/arcana-gen</code> generates tables.d.ts + views.d.ts</li>
-          <li><strong style="color:var(--text-bright)">Custom transport</strong> &mdash; implement TransportClient interface for any WS/SSE</li>
-          <li><strong style="color:var(--text-bright)">Connection status</strong> &mdash; connected, connecting, disconnected, offline</li>
-        </ul>
-      </div>
-    </div>
-    <div class="code-section reveal" style="margin-top:40px">
-      <div class="code-explain">
-        <h3>Params &amp; Identity</h3>
-        <p>Type-safe parameter definitions with validation. Identity context in every factory for authorization.</p>
-        <div class="code-block" style="border-radius:10px; margin-top:16px">
-          <div class="code-body" style="padding:16px; font-size:12px; line-height:1.7"><span class="cm">// Inside Factory:</span>
-wsID := arcana.<span class="fn">WorkspaceID</span>(ctx)
-user := arcana.<span class="fn">User</span>(ctx)
-
-<span class="kw">if</span> !user.<span class="fn">HasPermission</span>(<span class="st">"read:users"</span>) {
-    <span class="kw">return</span> <span class="nu">nil</span>, arcana.ErrForbidden
-}
-
-<span class="cm">// Errors:</span>
-arcana.ErrForbidden   <span class="cm">// 403</span>
-arcana.ErrNotFound    <span class="cm">// 404</span>
-arcana.ErrInvalidParams <span class="cm">// 400</span></div>
-        </div>
-      </div>
-      <div>
-        <div class="code-block">
-          <div class="code-header"><div class="code-dots"><span class="code-dot code-dot-r"></span><span class="code-dot code-dot-y"></span><span class="code-dot code-dot-g"></span></div>Params API</div>
-          <div class="code-body" style="font-size:12.5px">Params: arcana.ParamSchema{
-  <span class="st">"org_id"</span>: arcana.<span class="fn">ParamUUID</span>().<span class="fn">Required</span>(),
-  <span class="st">"limit"</span>:  arcana.<span class="fn">ParamInt</span>().<span class="fn">Default</span>(<span class="nu">50</span>),
-  <span class="st">"status"</span>: arcana.<span class="fn">ParamString</span>().
-              <span class="fn">OneOf</span>(<span class="st">"active"</span>, <span class="st">"archived"</span>).
-              <span class="fn">Build</span>(),
-  <span class="st">"verbose"</span>: arcana.<span class="fn">ParamBool</span>().<span class="fn">Default</span>(<span class="nu">false</span>),
-},
-
-<span class="cm">// In factory:</span>
-orgID  := p.<span class="fn">UUID</span>(<span class="st">"org_id"</span>)
-limit  := p.<span class="fn">Int</span>(<span class="st">"limit"</span>)    <span class="cm">// 50 if omitted</span>
-status := p.<span class="fn">String</span>(<span class="st">"status"</span>)
-raw    := p.<span class="fn">Raw</span>()          <span class="cm">// map[string]any</span></div>
+<span class="cm">// GET /devtools/      → dashboard</span>
+<span class="cm">// GET /devtools/state → JSON state</span></div>
         </div>
       </div>
     </div>
@@ -682,12 +739,12 @@ raw    := p.<span class="fn">Raw</span>()          <span class="cm">// map[strin
   <div class="container">
     <div class="reveal"><div class="section-label">Documentation</div><div class="section-title">Learn Arcana</div></div>
     <div class="docs-grid">
-      <a href="https://github.com/FrankFMY/arcana#quick-start" class="doc-card reveal reveal-delay-1" target="_blank" rel="noopener"><div class="feature-card"><div class="feature-icon fi-green">&#128214;</div><h3>Quick Start</h3><p>Get running in 5 minutes. Install, define a graph, subscribe from frontend.</p></div></a>
-      <a href="https://github.com/FrankFMY/arcana#data-flow" class="doc-card reveal reveal-delay-2" target="_blank" rel="noopener"><div class="feature-card"><div class="feature-icon fi-blue">&#128225;</div><h3>Wire Protocol</h3><p>table_diff, view_diff, subscribe, sync &mdash; the complete protocol specification.</p></div></a>
-      <a href="https://github.com/FrankFMY/arcana#security" class="doc-card reveal reveal-delay-3" target="_blank" rel="noopener"><div class="feature-card"><div class="feature-icon fi-red">&#128274;</div><h3>Security Model</h3><p>How graphs enforce access control. AuthFunc, Factory permissions, 409 masking.</p></div></a>
-      <a href="https://github.com/FrankFMY/arcana#api-reference" class="doc-card reveal reveal-delay-1" target="_blank" rel="noopener"><div class="feature-card"><div class="feature-icon fi-purple">&#128203;</div><h3>API Reference</h3><p>Every type, method, and option. GraphDef, ParamSchema, Transport, Config.</p></div></a>
-      <a href="https://github.com/FrankFMY/arcana/tree/main/sdk" class="doc-card reveal reveal-delay-2" target="_blank" rel="noopener"><div class="feature-card"><div class="feature-icon fi-yellow">&#128312;</div><h3>TypeScript SDK</h3><p>Client, Svelte adapter, IndexedDB storage, codegen output.</p></div></a>
-      <a href="https://github.com/FrankFMY/arcana/tree/main/examples" class="doc-card reveal reveal-delay-3" target="_blank" rel="noopener"><div class="feature-card"><div class="feature-icon fi-green">&#128161;</div><h3>Examples</h3><p>Basic setup, pg_notify, Centrifugo full stack, offline mode.</p></div></a>
+      <a href="https://github.com/FrankFMY/arcana#quick-start" class="doc-card reveal reveal-delay-1" target="_blank" rel="noopener"><div class="feature-card"><div class="feature-icon fi-green">&#128214;</div><h3>Quick Start</h3><p>Get running in 5 minutes. Install, define a graph, subscribe from any framework.</p></div></a>
+      <a href="https://github.com/FrankFMY/arcana#mutations" class="doc-card reveal reveal-delay-2" target="_blank" rel="noopener"><div class="feature-card"><div class="feature-icon fi-blue">&#128221;</div><h3>Mutations</h3><p>Server-side writes with typed params, auto-invalidation, HTTP and WebSocket execution.</p></div></a>
+      <a href="https://github.com/FrankFMY/arcana#transport" class="doc-card reveal reveal-delay-3" target="_blank" rel="noopener"><div class="feature-card"><div class="feature-icon fi-purple">&#128225;</div><h3>Transport</h3><p>Built-in WebSocket, Centrifugo, or custom. Auth modes, reconnect, protocol details.</p></div></a>
+      <a href="https://github.com/FrankFMY/arcana#devtools" class="doc-card reveal reveal-delay-1" target="_blank" rel="noopener"><div class="feature-card"><div class="feature-icon fi-yellow">&#129520;</div><h3>DevTools</h3><p>Built-in dashboard. Graphs, mutations, subscriptions, WS connections, data store.</p></div></a>
+      <a href="https://github.com/FrankFMY/arcana/tree/main/sdk" class="doc-card reveal reveal-delay-2" target="_blank" rel="noopener"><div class="feature-card"><div class="feature-icon fi-red">&#128312;</div><h3>TypeScript SDK</h3><p>Client, React/Vue/Svelte adapters, WebSocket transport, IndexedDB, codegen.</p></div></a>
+      <a href="https://github.com/FrankFMY/arcana/tree/main/examples" class="doc-card reveal reveal-delay-3" target="_blank" rel="noopener"><div class="feature-card"><div class="feature-icon fi-green">&#128161;</div><h3>Examples</h3><p>Basic setup, real-time dashboard with mutations, WS transport, and DevTools.</p></div></a>
     </div>
   </div>
 </section>
@@ -697,7 +754,7 @@ raw    := p.<span class="fn">Raw</span>()          <span class="cm">// map[strin
 <section class="cta">
   <div class="container reveal">
     <div class="cta-title">Start building reactive apps today</div>
-    <div class="cta-desc">One Go library. One subscribe call. Real-time data sync that just works.</div>
+    <div class="cta-desc">One Go library. One subscribe call. Built-in WebSocket. React, Vue, Svelte. Real-time data sync that just works.</div>
     <div class="hero-actions">
       <a href="https://github.com/FrankFMY/arcana" class="btn-primary" target="_blank" rel="noopener">Get Started</a>
       <a href="https://github.com/FrankFMY/arcana/stargazers" class="btn-secondary" target="_blank" rel="noopener">Star on GitHub</a>
@@ -713,8 +770,8 @@ raw    := p.<span class="fn">Raw</span>()          <span class="cm">// map[strin
 </footer>
 
 <script>
-const observer = new IntersectionObserver(function(entries) {
-  for (let i = 0; i < entries.length; i++) {
+var observer = new IntersectionObserver(function(entries) {
+  for (var i = 0; i < entries.length; i++) {
     if (entries[i].isIntersecting) entries[i].target.classList.add('visible');
   }
 }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
@@ -729,6 +786,16 @@ document.getElementById('copyBtn').addEventListener('click', function() {
   navigator.clipboard.writeText('go get github.com/FrankFMY/arcana').then(function() {
     btn.classList.add('copied');
     setTimeout(function() { btn.classList.remove('copied'); }, 2000);
+  });
+});
+
+// Framework tabs
+document.querySelectorAll('.tab-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+    document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
   });
 });
 </script>
