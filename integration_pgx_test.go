@@ -202,14 +202,8 @@ func TestPgxIntegrationFullPipeline(t *testing.T) {
 		Columns: []string{"name"},
 	})
 
-	// Wait for async invalidation
-	time.Sleep(200 * time.Millisecond)
-
 	// Step 4: Verify table_diff was sent with correct data from DB
-	wsMessages := transport.getWorkspaceMessages("w1")
-	if len(wsMessages) == 0 {
-		t.Fatal("expected table_diff messages after notify")
-	}
+	wsMessages := waitWorkspaceMessages(t, transport, "w1", 5*time.Second)
 
 	foundDiff := false
 	for _, msg := range wsMessages {
@@ -249,9 +243,7 @@ func TestPgxIntegrationFullPipeline(t *testing.T) {
 		Columns: []string{"id", "name", "email", "role"},
 	})
 
-	time.Sleep(200 * time.Millisecond)
-
-	seanceMessages := transport.getSeanceMessages("s1")
+	seanceMessages := waitSeanceMessages(t, transport, "s1", 5*time.Second)
 	foundViewDiff := false
 	for _, msg := range seanceMessages {
 		if msg.Type == "view_diff" {
@@ -287,6 +279,36 @@ func TestPgxIntegrationFullPipeline(t *testing.T) {
 	}
 
 	t.Log("Step 7 OK: Parameterized query returns correct filtered data")
+}
+
+func waitWorkspaceMessages(t *testing.T, transport *mockTransport, workspaceID string, timeout time.Duration) []Message {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		messages := transport.getWorkspaceMessages(workspaceID)
+		if len(messages) > 0 {
+			return messages
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("expected workspace messages for %q within %s", workspaceID, timeout)
+	return nil
+}
+
+func waitSeanceMessages(t *testing.T, transport *mockTransport, seanceID string, timeout time.Duration) []Message {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		messages := transport.getSeanceMessages(seanceID)
+		if len(messages) > 0 {
+			return messages
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("expected seance messages for %q within %s", seanceID, timeout)
+	return nil
 }
 
 func TestPgxIntegrationQueryRowCompat(t *testing.T) {

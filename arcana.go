@@ -18,6 +18,7 @@ type Engine struct {
 	invalidator *Invalidator
 	notifier    *ExplicitNotifier
 	detector    ChangeDetector
+	batcher     *changeBatcher
 	wsTransport *WSTransport
 	logger      *slog.Logger
 
@@ -130,9 +131,12 @@ func (e *Engine) Start(ctx context.Context) error {
 		e.detector = e.notifier
 	}
 
-	err := e.detector.Start(engineCtx, func(change Change) {
+	changeBatcher := newChangeBatcher(engineCtx, e.config.InvalidationDebounce, func(change Change) {
 		e.invalidator.Invalidate(engineCtx, change)
 	})
+	e.batcher = changeBatcher
+
+	err := e.detector.Start(engineCtx, changeBatcher.Handle)
 	if err != nil {
 		cancel()
 		return err
@@ -140,9 +144,7 @@ func (e *Engine) Start(ctx context.Context) error {
 
 	// If using external detector, also start notifier for explicit notify
 	if e.config.ChangeDetector != nil {
-		err = e.notifier.Start(engineCtx, func(change Change) {
-			e.invalidator.Invalidate(engineCtx, change)
-		})
+		err = e.notifier.Start(engineCtx, changeBatcher.Handle)
 		if err != nil {
 			cancel()
 			return err
@@ -172,6 +174,10 @@ func (e *Engine) Stop() error {
 	}
 	if e.config.ChangeDetector != nil && e.notifier != nil {
 		e.notifier.Stop()
+	}
+	if e.batcher != nil {
+		e.batcher.Flush()
+		e.batcher = nil
 	}
 
 	e.cancel()

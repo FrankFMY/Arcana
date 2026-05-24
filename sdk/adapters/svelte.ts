@@ -47,45 +47,77 @@ export function createArcana(
 /**
  * Reactive subscription helper for Svelte 5.
  *
- * Returns an object with $state-compatible properties.
- * The onUpdate callback triggers Svelte reactivity.
+ * Returns a Svelte store-compatible object plus direct getters.
+ * Avoids Svelte runes in library code, so the adapter works from plain
+ * TypeScript and compiled packages.
  */
-export function createSubscription(
-  client: ArcanaClient,
-  graphKey: string,
-  params: Record<string, unknown>
-): {
+export interface SubscriptionSnapshot {
   data: Ref[];
   version: number;
   loading: boolean;
   offline: boolean;
-  destroy: () => void;
-} {
-  let state = $state({
+  error: unknown | null;
+}
+
+export interface SvelteSubscription extends SubscriptionSnapshot {
+  subscribe(run: (snapshot: SubscriptionSnapshot) => void): () => void;
+  destroy(): void;
+}
+
+export function createSubscription(
+  client: ArcanaClient,
+  graphKey: string,
+  params: Record<string, unknown>
+): SvelteSubscription {
+  let state: SubscriptionSnapshot = {
     data: [] as Ref[],
     version: 0,
     loading: true,
     offline: client.isOffline,
-  });
+    error: null,
+  };
 
   let handle: ViewHandle | null = null;
+  let destroyed = false;
+  const listeners = new Set<(snapshot: SubscriptionSnapshot) => void>();
+
+  function notify(next: Partial<SubscriptionSnapshot>) {
+    state = { ...state, ...next };
+    for (const listener of listeners) {
+      listener(state);
+    }
+  }
 
   client
     .subscribe(graphKey, params, {
       onUpdate: () => {
-        if (handle) {
-          state.data = [...handle.data];
-          state.version = handle.version;
-          state.offline = client.isOffline;
+        if (!destroyed && handle) {
+          notify({
+            data: [...handle.data],
+            version: handle.version,
+            offline: client.isOffline,
+          });
         }
       },
     })
     .then((h) => {
+      if (destroyed) {
+        h.destroy();
+        return;
+      }
       handle = h;
-      state.data = [...h.data];
-      state.version = h.version;
-      state.loading = false;
-      state.offline = client.isOffline;
+      notify({
+        data: [...h.data],
+        version: h.version,
+        loading: false,
+        offline: client.isOffline,
+        error: null,
+      });
+    })
+    .catch((error) => {
+      if (!destroyed) {
+        notify({ loading: false, error });
+      }
     });
 
   return {
@@ -101,8 +133,20 @@ export function createSubscription(
     get offline() {
       return state.offline;
     },
+    get error() {
+      return state.error;
+    },
+    subscribe(run) {
+      run(state);
+      listeners.add(run);
+      return () => {
+        listeners.delete(run);
+      };
+    },
     destroy() {
+      destroyed = true;
       handle?.destroy();
+      listeners.clear();
     },
   };
 }

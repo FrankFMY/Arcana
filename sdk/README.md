@@ -245,7 +245,7 @@ Creates an `ArcanaClient` instance:
 
 ### `createSubscription`
 
-Reactive subscription helper that integrates with Svelte 5's `$state`:
+Reactive subscription helper that works as a Svelte store and also exposes direct getters:
 
 ```svelte
 <script lang="ts">
@@ -259,6 +259,8 @@ Reactive subscription helper that integrates with Svelte 5's `$state`:
   <p>Loading...</p>
 {:else if users.offline}
   <p>Offline — showing cached data</p>
+{:else if users.error}
+  <p>Failed to load users</p>
 {/if}
 
 {#each users.data as ref}
@@ -271,11 +273,13 @@ Reactive subscription helper that integrates with Svelte 5's `$state`:
 
 ```typescript
 {
-  data: Ref[];        // Reactive refs array
-  version: number;    // Current version
-  loading: boolean;   // Initial load in progress
-  offline: boolean;   // Operating from cache
-  destroy(): void;    // Clean up
+  data: Ref[];                                           // Current refs array
+  version: number;                                       // Current version
+  loading: boolean;                                      // Initial load in progress
+  offline: boolean;                                      // Operating from cache
+  error: unknown | null;                                 // Subscribe error, if any
+  subscribe(run: (snapshot: SubscriptionSnapshot) => void): () => void;
+  destroy(): void;                                       // Clean up
 }
 ```
 

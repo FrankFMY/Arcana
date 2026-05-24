@@ -676,5 +676,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 ## Author
 
 Artem Pryanishnikov
+- Email: frankfmy@proton.me
 - GitHub: [@FrankFMY](https://github.com/FrankFMY)
 - Telegram: [@FrankFMY](https://t.me/FrankFMY)
