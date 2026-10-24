@@ -675,7 +675,14 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## Author
 
-Artem Pryanishnikov
-- Email: frankfmy@proton.me
-- GitHub: [@FrankFMY](https://github.com/FrankFMY)
-- Telegram: [@FrankFMY](https://t.me/FrankFMY)
+Created and maintained by **Artem Prianishnikov / FrankFMY**.
+
+- Email: [Pryanishnikovartem@gmail.com](mailto:Pryanishnikovartem@gmail.com) · [frankfmy@proton.me](mailto:frankfmy@proton.me)
+- [Telegram](https://t.me/FrankFMY) · [LinkedIn](https://www.linkedin.com/in/frankfmy/) · [X](https://x.com/FrankFMY)
+- [Website](https://frankfmy.com) · [GitHub](https://github.com/FrankFMY) · [npm](https://www.npmjs.com/~frankfmy)
+
+MIT, with the complete original grant in [LICENSE](LICENSE). Frameworks and the server retain their own licenses.
+
+## Packaged TypeScript SDK
+
+Package identity: [@frankfmy/arcana-sdk](https://www.npmjs.com/package/@frankfmy/arcana-sdk). See the [SDK source/artifact quickstart and runtime/adapter guide](sdk/README.md). Core, React, Vue and Svelte are separate export paths in one package. Source installation does not depend on registry availability. The Go product and existing demo are unchanged.

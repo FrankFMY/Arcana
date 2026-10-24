@@ -4,7 +4,7 @@ import type {
   SubscribeResponse,
   MutateResponse,
   ViewTransportClient,
-} from "../types";
+} from "../types.js";
 
 /** Configuration for the built-in WebSocket transport. */
 export interface WSTransportConfig {

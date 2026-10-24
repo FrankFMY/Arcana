@@ -1,12 +1,14 @@
 /** Serializable snapshot of the Arcana client state. */
 export interface ArcanaSnapshot {
+  workspaceId?: string;
   tables: Record<string, Record<string, Record<string, unknown>>>;
   views: Record<
     string,
     {
-      refs: import("./types").Ref[];
+      refs: import("./types.js").Ref[];
       version: number;
       graphKey: string;
+      params?: Record<string, unknown>;
     }
   >;
   timestamp: number;

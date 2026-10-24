@@ -1,343 +1,133 @@
 # Arcana TypeScript SDK
 
-Reactive client for the [Arcana](https://github.com/FrankFMY/arcana) sync engine. Manages graph subscriptions, applies real-time diffs, and provides a normalized in-memory store with offline persistence.
+An ESM client for the [Arcana Go server](https://github.com/FrankFMY/Arcana): normalized rows, live graph subscriptions, mutation calls and optional offline persistence. React, Vue and Svelte integrations live in separate export paths; importing the core does not import a UI framework.
 
-## Installation
+Package identity: [`@frankfmy/arcana-sdk`](https://www.npmjs.com/package/@frankfmy/arcana-sdk). Repository: [FrankFMY/Arcana, sdk/](https://github.com/FrankFMY/Arcana/tree/main/sdk). This is a client of that server protocol, not a standalone database or a replacement for server authorization.
 
-```bash
-npm install @arcana/sdk
-# or
-pnpm add @arcana/sdk
+## Build and install from source
+
+The source path works independently of npm version availability:
+
+```sh
+git clone https://github.com/FrankFMY/Arcana.git
+cd Arcana/sdk
+npm ci
+npm run build
+npm pack --pack-destination ../..
+cd ../..
+mkdir arcana-sdk-example
+cd arcana-sdk-example
+npm init -y
+npm install ../frankfmy-arcana-sdk-0.1.0.tgz
 ```
 
-## Quick Start
+You can also install an available exact registry version with `npm install @frankfmy/arcana-sdk@0.1.0`. Check the [version page](https://www.npmjs.com/package/@frankfmy/arcana-sdk/v/0.1.0); a staged placeholder is not that version.
 
-```typescript
-import { ArcanaClient, IndexedDBStorageAdapter } from "@arcana/sdk";
+## Connect to your server
 
-// 1. Create a transport (Centrifugo example)
-const transport: TransportClient = {
-  async connect() { /* connect to Centrifugo */ },
-  disconnect() { /* disconnect */ },
-  subscribe(channel, handler) {
-    // Subscribe to Centrifugo channel, call handler on messages
-    return () => { /* unsubscribe */ };
-  },
-};
+Use an application-issued credential and the graph/action keys actually registered by your Go server. The caller owns authentication, storage policy, connection lifetime and errors. For Node use an absolute HTTP(S) server URL. Browser applications should normally use same-origin HTTPS/WSS.
 
-// 2. Create client
-const arcana = new ArcanaClient({
-  apiUrl: "/arcana",
-  transport,
-  storage: new IndexedDBStorageAdapter(), // optional: offline persistence
-});
+```ts
+import {
+  ArcanaClient,
+  ArcanaWSTransport,
+  MemoryStorageAdapter,
+} from '@frankfmy/arcana-sdk';
 
-// 3. Connect to a workspace
-await arcana.connect("workspace-uuid");
-
-// 4. Subscribe to a graph
-const handle = await arcana.subscribe("user_list", {
-  org_id: "550e8400-e29b-41d4-a716-446655440000",
-  limit: 20,
-});
-
-// 5. Access data
-console.log(handle.data);    // Ref[] — view structure
-console.log(handle.version); // current version number
-
-// 6. Get normalized row data
-const user = arcana.getRow("users", "user-uuid");
-console.log(user); // { id: "...", name: "Alice", email: "alice@..." }
-
-// 7. Clean up
-handle.destroy();
-arcana.disconnect();
-```
-
-## Architecture
-
-```
-Browser
-  ├── ArcanaClient
-  │   ├── tableStore (Map<table, Map<id, fields>>)  — normalized rows
-  │   ├── viewStore (Map<paramsHash, {refs, version}>)  — view structures
-  │   └── storage? (IndexedDB / Memory)  — offline persistence
-  │
-  ├── Transport (Centrifugo / WebSocket / SSE)
-  │   ├── workspace:{id} channel → table_diff messages
-  │   └── views:{seanceID} channel → view_diff messages
-  │
-  └── HTTP API (/arcana/subscribe, /unsubscribe, /sync)
-```
-
-### Data Flow
-
-1. **Subscribe** — HTTP POST to `/arcana/subscribe` returns initial `refs` + `tables`
-2. **Real-time updates** — Transport delivers `table_diff` (row changes) and `view_diff` (structural changes)
-3. **Client applies patches** — JSON Patch (RFC 6902) operations update the local store
-4. **Callbacks fire** — `onUpdate` notifies the UI framework to re-render
-5. **Offline persistence** — State snapshots are saved to IndexedDB (debounced)
-
-## API Reference
-
-### `ArcanaClient`
-
-```typescript
-const client = new ArcanaClient(config: ArcanaConfig & { storage?: StorageAdapter });
-```
-
-#### Configuration
-
-```typescript
-interface ArcanaConfig {
-  apiUrl: string;           // Base URL for Arcana HTTP endpoints (e.g., "/arcana")
-  transport: TransportClient; // Real-time transport
-  fetchFn?: typeof fetch;   // Custom fetch (for SSR or auth injection)
+export async function openClient(
+  serverUrl: string,
+  workspaceId: string,
+  auth: () => string | Promise<string>,
+) {
+  const base = serverUrl.replace(/\/$/, '');
+  const transport = new ArcanaWSTransport({
+    url: base.replace(/^http/, 'ws') + '/arcana/ws',
+    auth,
+  });
+  const client = new ArcanaClient({
+    apiUrl: base + '/arcana',
+    transport,
+    storage: new MemoryStorageAdapter(),
+  });
+  await client.connect(workspaceId);
+  if (client.status !== 'connected') {
+    client.disconnect();
+    throw new Error('The server connection is not available');
+  }
+  return client;
 }
 ```
 
-#### Methods
+Await the initial connection before creating framework subscriptions. Create a new client for another workspace or authenticated principal; a client cannot be rebound to another workspace while retaining rows. `connect` is initialization, not an action to repeatedly invoke during rendering; the transport handles reconnects.
 
-| Method | Description |
-|--------|-------------|
-| `connect(workspaceId)` | Connect to transport, subscribe to workspace channel |
-| `disconnect()` | Disconnect and clean up all subscriptions |
-| `subscribe(graphKey, params, opts?)` | Subscribe to a graph view, returns `Promise<ViewHandle>`. `opts?: { onUpdate?: () => void }` |
-| `getRow(table, id)` | Get a normalized row from the local store |
-| `getTable(table)` | Get all rows for a table |
-| `persist()` | Force save state to storage adapter |
-| `clearCache()` | Clear offline cached data |
-| `onStatusChange(callback)` | Listen for connection status changes, returns unsubscribe fn |
-
-#### Properties
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `status` | `ConnectionStatus` | `"connected" \| "connecting" \| "disconnected" \| "offline"` |
-| `isOffline` | `boolean` | Whether operating from cached data |
-
-### `ViewHandle`
-
-Returned by `subscribe()`. Provides reactive access to view data.
-
-```typescript
-interface ViewHandle<T = Ref[]> {
-  readonly data: T;           // Current refs (view structure)
-  readonly version: number;   // Current version
-  readonly loading: boolean;  // Whether initial load is in progress
-  destroy(): void;            // Unsubscribe and clean up
-}
-
-type OnUpdateCallback = () => void;
-type ConnectionStatus = "connected" | "connecting" | "disconnected" | "offline";
-type StatusCallback = (status: ConnectionStatus) => void;
-```
-
-### Types
-
-```typescript
-interface Ref {
-  table: string;
-  id: string;
-  fields: string[];
-  nested?: Record<string, Ref>;
-}
-
-interface PatchOp {
-  op: "add" | "remove" | "replace";
-  path: string;
-  value?: unknown;
-}
-
-interface TransportMessage {
-  type: "table_diff" | "view_diff" | "view_snapshot";
-  data: unknown;
-}
-
-interface TableDiff {
-  table: string;
-  id: string;
-  ver: number;
-  patch: PatchOp[];
-}
-
-interface ViewDiff {
-  view: string;
-  params_hash: string;
-  version: number;
-  refs_patch: PatchOp[];
-  tables: Record<string, Record<string, Record<string, unknown>>>;
-}
-
-interface SubscribeResponse {
-  params_hash: string;
-  version: number;
-  refs: Ref[];
-  tables: Record<string, Record<string, Record<string, unknown>>>;
+```ts
+export async function inspectGraph(client: ArcanaClient, graphKey: string) {
+  const view = await client.subscribe(graphKey, {});
+  try {
+    for (const ref of view.data) {
+      console.log(ref.table, ref.id, client.getRow(ref.table, ref.id));
+    }
+  } finally {
+    view.destroy();
+  }
 }
 ```
 
-## Offline Persistence
+`subscribe(graphKey, params, { onUpdate })` resolves to a handle with live `data` references, `version`, `loading` and `destroy()`. Rows are stored separately: read them through `getRow(table, id)` or `getTable(table)`. Treat returned store data as read-only. `mutate<T>(action, params)` returns the server mutation data; it does not manufacture optimistic success. Inputs must be JSON-compatible objects. Parameters are detached at request entry so later caller edits do not change the submitted/offline identity.
 
-The SDK supports offline-first operation with pluggable storage adapters:
+The built-in `ArcanaWSTransport` uses WebSocket RPC for subscriptions/mutations. A supplied `TransportClient` may instead deliver channel publications while the client uses authenticated HTTP endpoints; supply `fetchFn` with the server's required authentication. Do not put privileged server credentials in browser code.
 
-```typescript
-import { ArcanaClient, IndexedDBStorageAdapter } from "@arcana/sdk";
+## Framework adapters and peer isolation
 
-const client = new ArcanaClient({
-  apiUrl: "/arcana",
-  transport,
-  storage: new IndexedDBStorageAdapter("my-app"), // browser persistence
-});
-```
+| Export | Runtime requirement | Main API |
+| --- | --- | --- |
+| `@frankfmy/arcana-sdk` | Native fetch/WebSocket; optional storage | `ArcanaClient`, `ArcanaWSTransport`, storage adapters and protocol types |
+| `@frankfmy/arcana-sdk/adapters/react` | React `^19.2.4` | `ArcanaProvider`, `useArcana`, `useView`, `useRow`, `useStatus`, `useMutation` |
+| `@frankfmy/arcana-sdk/adapters/vue` | Vue `^3.5.42` | `provideArcana`, `useArcana`, `useView`, `useRow`, `useStatus`, `useMutation` |
+| `@frankfmy/arcana-sdk/adapters/svelte` | Standard Svelte store contract; no imported Svelte runtime | `createSubscription`, `getRow` |
 
-### How It Works
+React and Vue are optional peers: install only the one you use. The package does not bundle those frameworks. The Svelte adapter is runtime-free and is qualified with Svelte5.57.2; it does not impose an unrelated framework version cap.
 
-1. **On subscribe** — State is saved to storage (debounced 500ms)
-2. **On update** — State is saved after each table_diff / view_diff
-3. **On connect failure** — Client loads cached data and enters `"offline"` status
-4. **On reconnect** — Client calls `/sync` to catch up missed changes
+React: pass an already connected `client` to `ArcanaProvider`; call hooks in descendants, and disconnect when the owning application closes. Vue: call `provideArcana(client)` in a parent setup function, not the same setup that calls `useArcana`/`useView`. Pass a getter or ref for reactive parameters. `useRow` takes the view's version ref as a trigger when rows need to follow updates. Late responses from replaced parameter generations are destroyed rather than replacing current state.
 
-### Storage Adapters
-
-| Adapter | Use Case |
-|---------|----------|
-| `IndexedDBStorageAdapter` | Browser — persists across page reloads |
-| `MemoryStorageAdapter` | SSR / tests — in-memory only |
-
-Custom adapter:
-
-```typescript
-interface StorageAdapter {
-  save(data: ArcanaSnapshot): Promise<void>;
-  load(): Promise<ArcanaSnapshot | null>;
-  clear(): Promise<void>;
-}
-```
-
-## Svelte 5 Adapter
-
-```bash
-import { createArcana, createSubscription } from "@arcana/sdk/adapters/svelte";
-```
-
-### `createArcana`
-
-Creates an `ArcanaClient` instance:
+In Svelte, use the returned object's **store** value (`$view`), not plain getters as reactive state. For example, in a component below an application that provided an already connected client through context:
 
 ```svelte
-<script lang="ts">
-  import { createArcana } from "@arcana/sdk/adapters/svelte";
-  import { IndexedDBStorageAdapter } from "@arcana/sdk";
-
-  const arcana = createArcana({
-    apiUrl: "/arcana",
-    transport: centrifugoTransport,
-    storage: new IndexedDBStorageAdapter(),
-  });
-
-  $effect(() => {
-    arcana.connect(workspaceId);
-    return () => arcana.disconnect();
-  });
-</script>
-```
-
-### `createSubscription`
-
-Reactive subscription helper that works as a Svelte store and also exposes direct getters:
-
-```svelte
-<script lang="ts">
-  import { createArcana, createSubscription } from "@arcana/sdk/adapters/svelte";
-
-  const arcana = createArcana({ apiUrl: "/arcana", transport });
-  const users = createSubscription(arcana, "user_list", { org_id: orgId, limit: 20 });
+<script>
+  import { getContext, onDestroy } from 'svelte';
+  import { createSubscription } from '@frankfmy/arcana-sdk/adapters/svelte';
+  const client = getContext('arcana');
+  const view = createSubscription(client, 'your_registered_graph', {});
+  onDestroy(() => view.destroy());
 </script>
 
-{#if users.loading}
-  <p>Loading...</p>
-{:else if users.offline}
-  <p>Offline — showing cached data</p>
-{:else if users.error}
-  <p>Failed to load users</p>
+{#if $view.loading}
+  <p>Loading…</p>
+{:else}
+  <p>{$view.data.length} references</p>
 {/if}
-
-{#each users.data as ref}
-  {@const user = arcana.getRow(ref.table, ref.id)}
-  <p>{user?.name} — {user?.email}</p>
-{/each}
 ```
 
-### `createSubscription` Return Type
+The graph name is application-defined. Context provisioning and connection/authentication belong to the application. The stores are not a substitute for initializing a client.
 
-```typescript
-{
-  data: Ref[];                                           // Current refs array
-  version: number;                                       // Current version
-  loading: boolean;                                      // Initial load in progress
-  offline: boolean;                                      // Operating from cache
-  error: unknown | null;                                 // Subscribe error, if any
-  subscribe(run: (snapshot: SubscriptionSnapshot) => void): () => void;
-  destroy(): void;                                       // Clean up
-}
-```
+## Offline state and security
 
-## Transport Implementation
+`MemoryStorageAdapter` is SSR-safe in-memory storage. `IndexedDBStorageAdapter(databaseName)` uses real browser IndexedDB and must only be operated in a browser. Call `await client.persist()` for a durable snapshot and `client.disconnect()` to release transport/listeners. The offline adapter is optional.
 
-The SDK expects a `TransportClient` interface. Here's an example with Centrifugo:
+Snapshots are scoped to the connected workspace and the submitted JSON parameter identity; ambiguous legacy snapshots are ignored. Offline data is a cache, **not an authorization decision**. It is unencrypted, has no automatic expiration or revocation guarantee, and can outlive a server session. Give each principal/workspace its own storage database, discard old client instances on account changes and clear only your own adapter once its work is quiescent. Avoid durable storage when that policy cannot be met. Reauthorize all real operations on the server.
 
-```typescript
-import { Centrifuge } from "centrifuge";
+## Runtime and development
 
-function createCentrifugoTransport(url: string, token: string): TransportClient {
-  const client = new Centrifuge(url, { token });
-  const subscriptions = new Map<string, any>();
+Qualification targets Node22 and24, real Chromium/WebKit core/IndexedDB behavior, React19.2.4, Vue3.5.42 and Svelte5.57.2. Other runtimes/OS/browser versions are not implied tested. No CommonJS output. Core imports are safe without a browser or UI peers, but browser-only persistence and rendered subscriptions are not SSR work.
 
-  return {
-    async connect() {
-      client.connect();
-      await new Promise<void>((resolve) => {
-        client.on("connected", () => resolve());
-      });
-    },
+From `sdk/`, run `npm ci`, `npm run verify`. The installed-package suite needs Go1.24+ for the repository's loopback fixture and the pinned Playwright Chromium/WebKit assets. Provision the matching browsers with `npx playwright install chromium webkit` and the platform dependencies described by Playwright. The suite installs the actual packed artifact into isolated consumers and exercises real Arcana engine/handler/WebSocket paths with an in-memory factory, not PostgreSQL CDC, production authentication, a crypto audit or an independent deployment. [Security boundaries](SECURITY.md) · [Changes](CHANGELOG.md).
 
-    disconnect() {
-      client.disconnect();
-    },
+## Author and license
 
-    subscribe(channel, handler) {
-      const sub = client.newSubscription(channel);
-      sub.on("publication", (ctx) => {
-        handler(ctx.data);
-      });
-      sub.subscribe();
-      subscriptions.set(channel, sub);
+Created and maintained by **Artem Prianishnikov / FrankFMY**.
 
-      return () => {
-        sub.unsubscribe();
-        subscriptions.delete(channel);
-      };
-    },
-  };
-}
-```
+- Email: [Pryanishnikovartem@gmail.com](mailto:Pryanishnikovartem@gmail.com) · [frankfmy@proton.me](mailto:frankfmy@proton.me)
+- [Telegram](https://t.me/FrankFMY) · [LinkedIn](https://www.linkedin.com/in/frankfmy/) · [X](https://x.com/FrankFMY)
+- [Website](https://frankfmy.com) · [GitHub](https://github.com/FrankFMY) · [npm](https://www.npmjs.com/~frankfmy)
 
-## Exports
-
-```typescript
-// Main client
-export { ArcanaClient } from "./client";
-export type { ViewHandle, OnUpdateCallback, ConnectionStatus, StatusCallback } from "./client";
-
-// Types
-export type {
-  PatchOp, Ref, TransportMessage, TableDiff, ViewDiff,
-  SubscribeResponse, ApiResponse, ArcanaConfig, TransportClient,
-  ViewMap, TableMap,
-} from "./types";
-
-// Storage
-export { MemoryStorageAdapter, IndexedDBStorageAdapter } from "./storage";
-export type { StorageAdapter, ArcanaSnapshot } from "./storage";
-```
+MIT, with the complete original grant in [LICENSE](LICENSE). Frameworks and the server retain their own licenses.

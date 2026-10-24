@@ -2,14 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import type { ReactNode } from "react";
-import type { ArcanaClient, ViewHandle, ConnectionStatus } from "../client";
-import type { Ref } from "../types";
+import type { ArcanaClient, ViewHandle, ConnectionStatus } from "../client.js";
+import type { Ref } from "../types.js";
 import {
   ArcanaProvider,
   useView,
   useMutation,
   useStatus,
-} from "./react";
+} from "./react.js";
 
 // --- Mock client factory ---
 

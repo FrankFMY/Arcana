@@ -1,6 +1,6 @@
-import { ArcanaClient, type ViewHandle, type ConnectionStatus } from "../client";
-import type { ArcanaConfig, Ref, TransportClient } from "../types";
-import type { StorageAdapter } from "../storage";
+import { ArcanaClient, type ViewHandle, type ConnectionStatus } from "../client.js";
+import type { ArcanaConfig, Ref, TransportClient } from "../types.js";
+import type { StorageAdapter } from "../storage.js";
 
 /**
  * Creates an Arcana client instance for Svelte 5 applications.
@@ -8,8 +8,8 @@ import type { StorageAdapter } from "../storage";
  * Usage:
  * ```svelte
  * <script lang="ts">
- *   import { createArcana } from "@arcana/svelte";
- *   import { IndexedDBStorageAdapter } from "@arcana/sdk";
+ *   import { createArcana } from "@frankfmy/arcana-sdk/adapters/svelte";
+ *   import { IndexedDBStorageAdapter } from "@frankfmy/arcana-sdk";
  *
  *   const arcana = createArcana({
  *     apiUrl: "/arcana",
@@ -152,5 +152,5 @@ export function createSubscription(
 }
 
 export type { ViewHandle, ArcanaClient, ConnectionStatus };
-export type { Ref, ArcanaConfig, TransportClient } from "../types";
-export type { StorageAdapter } from "../storage";
+export type { Ref, ArcanaConfig, TransportClient } from "../types.js";
+export type { StorageAdapter } from "../storage.js";

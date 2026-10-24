@@ -1,5 +1,5 @@
-export { ArcanaClient } from "./client";
-export type { ViewHandle, OnUpdateCallback, ConnectionStatus, StatusCallback } from "./client";
+export { ArcanaClient } from "./client.js";
+export type { ViewHandle, OnUpdateCallback, ConnectionStatus, StatusCallback } from "./client.js";
 export type {
   PatchOp,
   Ref,
@@ -14,9 +14,9 @@ export type {
   ViewTransportClient,
   ViewMap,
   TableMap,
-} from "./types";
-export { isViewTransportClient } from "./types";
-export { MemoryStorageAdapter, IndexedDBStorageAdapter } from "./storage";
-export type { StorageAdapter, ArcanaSnapshot } from "./storage";
-export { ArcanaWSTransport } from "./transports/ws";
-export type { WSTransportConfig } from "./transports/ws";
+} from "./types.js";
+export { isViewTransportClient } from "./types.js";
+export { MemoryStorageAdapter, IndexedDBStorageAdapter } from "./storage.js";
+export type { StorageAdapter, ArcanaSnapshot } from "./storage.js";
+export { ArcanaWSTransport } from "./transports/ws.js";
+export type { WSTransportConfig } from "./transports/ws.js";

@@ -10,8 +10,8 @@ import {
   type Ref as VueRef,
   type DeepReadonly,
 } from "vue";
-import type { ArcanaClient, ViewHandle, ConnectionStatus } from "../client";
-import type { Ref } from "../types";
+import type { ArcanaClient, ViewHandle, ConnectionStatus } from "../client.js";
+import type { Ref } from "../types.js";
 
 const ArcanaKey: InjectionKey<ArcanaClient> = Symbol("arcana");
 
@@ -69,10 +69,10 @@ export function useView(
   const resolveKey = typeof graphKey === "string" ? () => graphKey : () => graphKey.value;
 
   let handle: ViewHandle | null = null;
-  let destroyed = false;
+  let generation = 0;
 
   function cleanup() {
-    destroyed = true;
+    generation++;
     handle?.destroy();
     handle = null;
   }
@@ -81,7 +81,7 @@ export function useView(
     [resolveKey, () => JSON.stringify(resolveParams())],
     () => {
       cleanup();
-      destroyed = false;
+      const currentGeneration = generation;
       loading.value = true;
 
       const currentKey = resolveKey();
@@ -91,7 +91,7 @@ export function useView(
       client
         .subscribe(currentKey, currentParams, {
           onUpdate: () => {
-            if (!destroyed && refBox.handle) {
+            if (generation === currentGeneration && refBox.handle) {
               data.value = [...refBox.handle.data];
               version.value = refBox.handle.version;
               loading.value = false;
@@ -99,7 +99,7 @@ export function useView(
           },
         })
         .then((h) => {
-          if (destroyed) {
+          if (generation !== currentGeneration) {
             h.destroy();
             return;
           }
@@ -110,7 +110,7 @@ export function useView(
           loading.value = false;
         })
         .catch(() => {
-          if (!destroyed) {
+          if (generation === currentGeneration) {
             loading.value = false;
           }
         });
@@ -218,5 +218,5 @@ export function useMutation<T = unknown>(action: string): UseMutationReturn<T> {
 }
 
 export type { ViewHandle, ArcanaClient, ConnectionStatus };
-export type { Ref, ArcanaConfig, TransportClient } from "../types";
-export type { StorageAdapter } from "../storage";
+export type { Ref, ArcanaConfig, TransportClient } from "../types.js";
+export type { StorageAdapter } from "../storage.js";
