@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ArcanaClient, ViewHandle } from "../client";
-import type { Ref } from "../types";
-import { createSubscription, type SubscriptionSnapshot } from "./svelte";
+import type { ArcanaClient, ViewHandle } from "../client.js";
+import type { Ref } from "../types.js";
+import { createSubscription, type SubscriptionSnapshot } from "./svelte.js";
 
 function flushPromises(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));

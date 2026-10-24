@@ -7,8 +7,8 @@ import {
   useSyncExternalStore,
 } from "react";
 import type { ReactNode } from "react";
-import type { ArcanaClient, ViewHandle, ConnectionStatus } from "../client";
-import type { Ref } from "../types";
+import type { ArcanaClient, ViewHandle, ConnectionStatus } from "../client.js";
+import type { Ref } from "../types.js";
 
 const ArcanaContext = createContext<ArcanaClient | null>(null);
 
@@ -189,5 +189,5 @@ export function useMutation<T = unknown>(action: string): UseMutationResult<T> {
 }
 
 export type { ViewHandle, ArcanaClient, ConnectionStatus };
-export type { Ref, ArcanaConfig, TransportClient } from "../types";
-export type { StorageAdapter } from "../storage";
+export type { Ref, ArcanaConfig, TransportClient } from "../types.js";
+export type { StorageAdapter } from "../storage.js";

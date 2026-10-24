@@ -1,6 +1,12 @@
 {
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "check": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
+    "package:check": "node scripts/verify-package-contract.mjs",
+    "verify": "npm run check && npm test && npm run build && npm run package:check && npm run browser:check && npm audit --audit-level=high",
+    "browser:check": "node scripts/verify-package-contract.mjs browser"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.1",
@@ -8,9 +14,76 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "jsdom": "^28.1.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "vitest": "4.1.12",
+    "vue": "3.5.42",
+    "typescript": "6.0.3",
+    "@types/node": "24.13.3",
+    "vite": "8.1.6",
+    "svelte": "5.57.2",
+    "playwright": "1.63.0"
+  },
+  "name": "@frankfmy/arcana-sdk",
+  "version": "0.1.0",
+  "description": "TypeScript client for Arcana graph sync, with isolated React, Vue and Svelte adapters.",
+  "type": "module",
+  "license": "MIT",
+  "author": {
+    "name": "Artem Prianishnikov",
+    "email": "Pryanishnikovartem@gmail.com",
+    "url": "https://frankfmy.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FrankFMY/Arcana.git",
+    "directory": "sdk"
+  },
+  "homepage": "https://github.com/FrankFMY/Arcana/tree/main/sdk#readme",
+  "bugs": {
+    "url": "https://github.com/FrankFMY/Arcana/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md",
+    "CHANGELOG.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./adapters/react": {
+      "types": "./dist/adapters/react.d.ts",
+      "import": "./dist/adapters/react.js"
+    },
+    "./adapters/vue": {
+      "types": "./dist/adapters/vue.d.ts",
+      "import": "./dist/adapters/vue.js"
+    },
+    "./adapters/svelte": {
+      "types": "./dist/adapters/svelte.d.ts",
+      "import": "./dist/adapters/svelte.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
     "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "vitest": "^4.1.0",
-    "vue": "^3.5.30"
+    "vue": "^3.5.42"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "vue": {
+      "optional": true
+    }
   }
 }

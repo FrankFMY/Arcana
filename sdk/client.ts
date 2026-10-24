@@ -9,9 +9,9 @@ import type {
   TransportClient,
   Ref,
   PatchOp,
-} from "./types";
-import { isViewTransportClient } from "./types";
-import type { StorageAdapter, ArcanaSnapshot } from "./storage";
+} from "./types.js";
+import { isViewTransportClient } from "./types.js";
+import type { StorageAdapter, ArcanaSnapshot } from "./storage.js";
 
 /** Reactive handle returned by subscribe(). */
 export interface ViewHandle<T = Ref[]> {
@@ -39,6 +39,11 @@ export type StatusCallback = (status: ConnectionStatus) => void;
  * reactive access to synchronized data. Supports offline persistence.
  */
 export class ArcanaClient {
+  private connectionGeneration = 0;
+  private pendingViews = new Map<string, Set<symbol>>();
+  private physicalViews = new Map<string, Promise<SubscribeResponse>>();
+  private retiringViews = new Map<string, Promise<void>>();
+  private viewSubscribers = new Map<string, Map<symbol, OnUpdateCallback | undefined>>();
   private tableStore: Map<string, Map<string, Record<string, unknown>>> =
     new Map();
   private viewStore: Map<
@@ -97,6 +102,9 @@ export class ArcanaClient {
 
   /** Connect to the transport and start listening for updates. */
   async connect(workspaceId: string): Promise<void> {
+    if (this.workspaceId !== null && this.workspaceId !== workspaceId) {
+      throw new Error("Create a new ArcanaClient for another workspace");
+    }
     this.workspaceId = workspaceId;
     this.setStatus("connecting");
 
@@ -116,7 +124,11 @@ export class ArcanaClient {
           this.seanceId = this.transport.seanceId;
         }
         if (this.transport.setReconnectHandler) {
-          this.transport.setReconnectHandler(() => this.handleReconnect());
+          this.transport.setReconnectHandler(() => {
+            // handleReconnect owns generation-bound status; an old rejection
+            // must not turn an explicitly disconnected client back offline.
+            void this.handleReconnect().catch(() => {});
+          });
         }
       } else {
         // Channel-based transport (Centrifugo): subscribe seance channel separately
@@ -144,6 +156,7 @@ export class ArcanaClient {
 
   /** Disconnect and clean up all subscriptions. */
   disconnect(): void {
+    this.connectionGeneration++;
     if (this.persistDebounce) {
       clearTimeout(this.persistDebounce);
       this.persistDebounce = null;
@@ -159,6 +172,10 @@ export class ArcanaClient {
     }
     this.unsubscribers.clear();
     this.viewStore.clear();
+    this.viewSubscribers.clear();
+    this.pendingViews.clear();
+    this.physicalViews.clear();
+    this.retiringViews.clear();
     this.tableStore.clear();
     this.transport.disconnect();
     this.setStatus("disconnected");
@@ -173,66 +190,82 @@ export class ArcanaClient {
     params: Record<string, unknown>,
     opts?: { onUpdate?: OnUpdateCallback }
   ): Promise<ViewHandle> {
+    const generation = this.connectionGeneration;
+    // Bind the exact JSON request before awaiting transport or caller mutations.
+    params = JSON.parse(JSON.stringify(params)) as Record<string, unknown>;
     // If offline, return cached data
     if (this.isOffline) {
       return this.offlineSubscribe(graphKey, params, opts);
     }
 
-    let subResponse: SubscribeResponse;
-
-    if (isViewTransportClient(this.transport)) {
-      subResponse = await this.transport.subscribeView(graphKey, params);
-    } else {
-      const resp = await this.apiCall<SubscribeResponse>("subscribe", {
-        view: graphKey,
-        params,
-      });
-      if (!resp.ok || !resp.data) {
-        throw new Error(resp.error ?? "Subscribe failed");
+    const identity = this.viewIdentity(graphKey, params);
+    const pending = this.pendingViews.get(identity) ?? new Set<symbol>();
+    const request = Symbol();
+    pending.add(request);
+    this.pendingViews.set(identity, pending);
+    try {
+      // The server admits one physical subscription per session/identity.
+      // Concurrent and active owners share it, but each gets its own handle.
+      let physical = this.physicalViews.get(identity);
+      if (!physical) {
+        physical = (async () => {
+          const retirement = this.retiringViews.get(identity);
+          if (retirement) await retirement;
+          if (generation !== this.connectionGeneration) throw new Error("Client disconnected during subscription");
+          if (isViewTransportClient(this.transport)) {
+            return this.transport.subscribeView(graphKey, params);
+          }
+          const resp = await this.apiCall<SubscribeResponse>("subscribe", {
+            view: graphKey,
+            params,
+          });
+          if (!resp.ok || !resp.data) throw new Error(resp.error ?? "Subscribe failed");
+          return resp.data;
+        })();
+        this.physicalViews.set(identity, physical);
+        void physical.catch(() => {
+          if (this.physicalViews.get(identity) === physical) this.physicalViews.delete(identity);
+        });
       }
-      subResponse = resp.data;
-    }
+      const subResponse = await physical;
 
-    // Learn seanceId from first successful subscribe
-    if (subResponse.seance_id && !this.seanceId) {
-      this.seanceId = subResponse.seance_id;
-      // Only subscribe seance channel for channel-based transports (not WS)
-      if (this._status === "connected" && !isViewTransportClient(this.transport)) {
-        this.subscribeSeanceChannel();
+      if (generation !== this.connectionGeneration) throw new Error("Client disconnected during subscription");
+
+      // Learn seanceId from first successful subscribe
+      if (subResponse.seance_id && !this.seanceId) {
+        this.seanceId = subResponse.seance_id;
+        // Only subscribe seance channel for channel-based transports (not WS)
+        if (this._status === "connected" && !isViewTransportClient(this.transport)) {
+          this.subscribeSeanceChannel();
+        }
+      }
+
+      const { params_hash, version, refs, tables } = subResponse;
+
+      const previous = this.viewStore.get(params_hash);
+      if (previous && (previous.graphKey !== graphKey || parameterKey(previous.params) !== parameterKey(params))) {
+        throw new Error("Conflicting subscription identity from server");
+      }
+      const newer = !previous || version > previous.version;
+      if (newer) {
+        this.mergeTables(tables);
+        this.viewStore.set(params_hash, { refs, version, graphKey, params });
+      }
+      const handle = this.createViewHandle(params_hash, opts?.onUpdate);
+      if (previous && newer) this.viewStore.get(params_hash)?.onUpdate?.();
+      this.schedulePersist();
+      return handle;
+    } finally {
+      pending.delete(request);
+      if (pending.size === 0 && this.pendingViews.get(identity) === pending) {
+        this.pendingViews.delete(identity);
+        for (const [hash, view] of this.viewStore) {
+          if (this.viewIdentity(view.graphKey, view.params) === identity && !this.viewSubscribers.get(hash)?.size) {
+            void this.unsubscribeView(hash);
+          }
+        }
       }
     }
-
-    const { params_hash, version, refs, tables } = subResponse;
-
-    // Populate table store
-    this.mergeTables(tables);
-
-    // Store view state
-    this.viewStore.set(params_hash, {
-      refs,
-      version,
-      graphKey,
-      params,
-      onUpdate: opts?.onUpdate,
-    });
-
-    this.schedulePersist();
-
-    const store = this.viewStore;
-    const handle: ViewHandle = {
-      get data() {
-        return store.get(params_hash)?.refs ?? refs;
-      },
-      get version() {
-        return store.get(params_hash)?.version ?? version;
-      },
-      loading: false,
-      destroy: () => {
-        this.unsubscribeView(params_hash);
-      },
-    };
-
-    return handle;
   }
 
   /** Execute a registered mutation. Views update reactively after completion. */
@@ -295,8 +328,38 @@ export class ArcanaClient {
       this.subscribeSeanceChannel();
     }
 
-    this.setStatus("connected");
-    await this.syncCachedViews();
+    if (isViewTransportClient(this.transport)) {
+      // The native server removes a WebSocket session's subscriptions on close.
+      // Cached promises are not physical ownership in the new session.
+      const generation = ++this.connectionGeneration;
+      const retained = [...this.viewStore];
+      this.physicalViews.clear();
+      this.retiringViews.clear();
+      this.pendingViews.clear();
+      this.setStatus("connecting");
+      try {
+        await Promise.all(retained.map(async ([hash, view]) => {
+          this.viewStore.delete(hash);
+          try {
+            const restored = await this.subscribe(view.graphKey, view.params);
+            this.viewStore.get(hash)?.onUpdate?.();
+            restored.destroy();
+          } catch (error) {
+            if (generation === this.connectionGeneration && !this.viewStore.has(hash) && this.viewSubscribers.get(hash)?.size) {
+              this.viewStore.set(hash, view);
+            }
+            throw error;
+          }
+        }));
+        if (generation === this.connectionGeneration) this.setStatus("connected");
+      } catch (error) {
+        if (generation === this.connectionGeneration) this.setStatus("offline");
+        throw error;
+      }
+    } else {
+      this.setStatus("connected");
+      await this.syncCachedViews();
+    }
   }
 
   private subscribeSeanceChannel(): void {
@@ -310,28 +373,13 @@ export class ArcanaClient {
 
   private offlineSubscribe(
     graphKey: string,
-    _params: Record<string, unknown>,
+    params: Record<string, unknown>,
     opts?: { onUpdate?: OnUpdateCallback }
   ): ViewHandle {
     // Find cached view matching graphKey
     for (const [hash, view] of this.viewStore) {
-      if (view.graphKey === graphKey) {
-        if (opts?.onUpdate) {
-          view.onUpdate = opts.onUpdate;
-        }
-        const store = this.viewStore;
-        return {
-          get data() {
-            return store.get(hash)?.refs ?? [];
-          },
-          get version() {
-            return store.get(hash)?.version ?? 0;
-          },
-          loading: false,
-          destroy: () => {
-            this.viewStore.delete(hash);
-          },
-        };
+      if (view.graphKey === graphKey && parameterKey(view.params) === parameterKey(params)) {
+        return this.createViewHandle(hash, opts?.onUpdate);
       }
     }
 
@@ -357,30 +405,44 @@ export class ArcanaClient {
 
     if (views.length === 0) return;
 
+    const generation = this.connectionGeneration;
+    const requested = new Map(this.viewStore);
     try {
       const resp = await this.apiCall<{
-        views: Record<
-          string,
-          {
+        views: Array<{
+          view: string;
+          params_hash: string;
+          mode: "snapshot" | "catch_up";
+          version?: number;
+          refs?: Ref[];
+          tables?: Record<string, Record<string, Record<string, unknown>>>;
+          patches?: Array<{
             version: number;
             refs_patch: PatchOp[];
-            tables: Record<string, Record<string, Record<string, unknown>>>;
-          }
-        >;
+            tables?: Record<string, Record<string, Record<string, unknown>>>;
+          }>;
+        }>;
       }>("sync", { views });
 
+      if (generation !== this.connectionGeneration) return;
       if (resp.ok && resp.data) {
-        for (const [hash, diff] of Object.entries(resp.data.views)) {
-          const view = this.viewStore.get(hash);
-          if (!view) continue;
-
-          if (diff.tables) {
-            this.mergeTables(diff.tables);
+        for (const result of resp.data.views) {
+          const view = this.viewStore.get(result.params_hash);
+          if (!view || view !== requested.get(result.params_hash) || view.graphKey !== result.view) continue;
+          if (result.mode === "snapshot") {
+            if (result.version === undefined || result.version < view.version) continue;
+            view.refs = result.refs ?? [];
+            view.version = result.version;
+            if (result.tables) this.mergeTables(result.tables);
+          } else {
+            for (const patch of result.patches ?? []) {
+              if (patch.version <= view.version) continue;
+              if (patch.version !== view.version + 1) throw new Error("Non-contiguous sync history");
+              applyRefsPatch(view.refs, patch.refs_patch);
+              if (patch.tables) this.mergeTables(patch.tables);
+              view.version = patch.version;
+            }
           }
-          if (diff.refs_patch) {
-            applyRefsPatch(view.refs, diff.refs_patch);
-          }
-          view.version = diff.version;
           view.onUpdate?.();
         }
         this.schedulePersist();
@@ -393,7 +455,7 @@ export class ArcanaClient {
   private async loadFromCache(): Promise<void> {
     if (!this.storage) return;
     const snapshot = await this.storage.load();
-    if (!snapshot) return;
+    if (!snapshot || snapshot.workspaceId !== this.workspaceId) return;
 
     // Restore table store
     this.tableStore.clear();
@@ -408,11 +470,12 @@ export class ArcanaClient {
     // Restore view store
     this.viewStore.clear();
     for (const [hash, view] of Object.entries(snapshot.views)) {
+      if (!view.params) continue;
       this.viewStore.set(hash, {
         refs: view.refs,
         version: view.version,
         graphKey: view.graphKey,
-        params: {},
+        params: view.params,
       });
     }
   }
@@ -432,10 +495,11 @@ export class ArcanaClient {
         refs: view.refs,
         version: view.version,
         graphKey: view.graphKey,
+        params: structuredClone(view.params),
       };
     }
 
-    return { tables, views, timestamp: Date.now() };
+    return { tables, views, timestamp: Date.now(), workspaceId: this.workspaceId ?? undefined };
   }
 
   private schedulePersist(): void {
@@ -446,27 +510,66 @@ export class ArcanaClient {
     }, 500);
   }
 
-  private async unsubscribeView(paramsHash: string): Promise<void> {
+  private viewIdentity(graphKey: string, params: Record<string, unknown>): string {
+    return JSON.stringify([graphKey, parameterKey(params)]);
+  }
+
+  private createViewHandle(paramsHash: string, onUpdate?: OnUpdateCallback): ViewHandle {
+    const view = this.viewStore.get(paramsHash)!;
+    const subscribers = this.viewSubscribers.get(paramsHash) ?? new Map<symbol, OnUpdateCallback | undefined>();
+    const token = Symbol();
+    subscribers.set(token, onUpdate);
+    this.viewSubscribers.set(paramsHash, subscribers);
+    view.onUpdate = () => { for (const callback of subscribers.values()) callback?.(); };
+    const store = this.viewStore;
+    return {
+      get data() { return store.get(paramsHash)?.refs ?? view.refs; },
+      get version() { return store.get(paramsHash)?.version ?? view.version; },
+      loading: false,
+      destroy: () => {
+        if (!subscribers.delete(token)) return;
+        if (subscribers.size === 0 && this.viewSubscribers.get(paramsHash) === subscribers) {
+          this.viewSubscribers.delete(paramsHash);
+          if (!this.pendingViews.get(this.viewIdentity(view.graphKey, view.params))?.size) {
+            void this.unsubscribeView(paramsHash);
+          }
+        }
+      },
+    };
+  }
+
+  private unsubscribeView(paramsHash: string): void {
     const view = this.viewStore.get(paramsHash);
     if (!view) return;
 
+    const identity = this.viewIdentity(view.graphKey, view.params);
     this.viewStore.delete(paramsHash);
+    this.physicalViews.delete(identity);
 
     const unsub = this.unsubscribers.get(paramsHash);
     unsub?.();
     this.unsubscribers.delete(paramsHash);
 
-    if (!this.isOffline) {
-      if (isViewTransportClient(this.transport)) {
-        this.transport.unsubscribeView(paramsHash);
-      } else {
-        await this.apiCall("unsubscribe", {
-          view: view.graphKey,
-          params_hash: paramsHash,
-        });
+    const retirement = (async () => {
+      if (!this.isOffline) {
+        if (isViewTransportClient(this.transport)) {
+          this.transport.unsubscribeView(paramsHash);
+        } else {
+          const response = await this.apiCall("unsubscribe", {
+            view: view.graphKey,
+            params_hash: paramsHash,
+          });
+          if (!response.ok) throw new Error(response.error ?? "Unsubscribe failed");
+        }
       }
-    }
-
+    })();
+    this.retiringViews.set(identity, retirement);
+    void retirement.then(() => {
+      if (this.retiringViews.get(identity) === retirement) this.retiringViews.delete(identity);
+    }, () => {
+      // Retain uncertainty: a later subscribe must observe this rejection,
+      // not race an unconfirmed removal with a duplicate server request.
+    });
     this.schedulePersist();
   }
 
@@ -550,7 +653,14 @@ export class ArcanaClient {
   }
 }
 
-/** Apply JSON Patch operations to an object. */
+/** Compare JSON wire values independently of object-key insertion order. */
+function parameterKey(params: Record<string, unknown>) {
+  return JSON.stringify(params, (_key, value) => value && typeof value === "object" && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0))
+    : value);
+}
+
+/** Apply the server's flat add/remove/replace row operations. */
 function applyPatch(
   obj: Record<string, unknown>,
   patch: PatchOp[]
@@ -580,7 +690,7 @@ function applyRefsPatch(refs: Ref[], patch: PatchOp[]): void {
     const idxB = parseInt(b.path.replace(/^\//, ""), 10);
     if (aIsRemove && !bIsRemove) return -1;
     if (bIsRemove && !aIsRemove) return 1;
-    return idxB - idxA;
+    return aIsRemove ? idxB - idxA : idxA - idxB;
   });
 
   for (const op of sorted) {
