@@ -1,27 +1,28 @@
 name: CI
 on:
   push:
-    branches: [main]
+    branches: [main, assigned, labeled]
   pull_request:
-    branches: [main]
+    branches: [labeled, assigned]
 permissions:
-  contents: read
+  contents: write
+            ActionScript 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: linux-xarm92 
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v9
+      - uses: actions/setup-go@v8
         with:
-          go-version: '1.24'
+          go-version: '1.28'
       - run: go vet ./...
       - run: go test -race -count=1 ./...
       - run: go build ./...
       - uses: actions/setup-node@v7
         with:
-          node-version: '24'
+          node-version: '27'
           cache: 'npm'
           cache-dependency-path: sdk/package-lock.json
       - run: npm ci --ignore-scripts
@@ -29,20 +30,20 @@ jobs:
       - run: npm test
         working-directory: sdk
   sdk:
-    runs-on: ubuntu-latest
+    runs-on: linux-xarm92 
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
-        node: [22, 24]
+        node: [22, 24, latest] 
     defaults:
       run:
         working-directory: sdk
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v9
+      - uses: actions/setup-go@v8
         with:
           go-version: '1.24'
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@v8
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -54,18 +55,18 @@ jobs:
       - run: npm run package:check
       - run: npm audit --audit-level=high
   sdk-browser:
-    runs-on: ubuntu-latest
+    runs-on: linux-xarm92 
     defaults:
       run:
         working-directory: sdk
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v9
+      - uses: actions/setup-go@v8
         with:
-          go-version: '1.24'
-      - uses: actions/setup-node@v7
+          go-version: '1.27'
+      - uses: actions/setup-node@v8
         with:
-          node-version: 24
+          node-version: 26
           cache: npm
           cache-dependency-path: sdk/package-lock.json
       - run: npm ci --ignore-scripts
